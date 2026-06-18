@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
@@ -26,12 +27,18 @@ fun StockDashboardApp(
     val state = dashboardViewModel.uiState.collectAsStateWithLifecycle().value
     val themeMode = themeViewModel.mode.collectAsStateWithLifecycle().value
     val showGold = themeViewModel.showGold.collectAsStateWithLifecycle().value
-    val floatRunning = FloatWindowService.isRunning.collectAsStateWithLifecycle().value
+    val showFloat = themeViewModel.showFloat.collectAsStateWithLifecycle().value
+    val showNotification = themeViewModel.showNotification.collectAsStateWithLifecycle().value
+    val floatRunning = DashboardService.floatRunning.collectAsStateWithLifecycle().value
+    val overlayNasdaq = themeViewModel.overlayNasdaq.collectAsStateWithLifecycle().value
+    val overlayGold = themeViewModel.overlayGold.collectAsStateWithLifecycle().value
+    val overlayFunds = themeViewModel.overlayFunds.collectAsStateWithLifecycle().value
     val darkTheme = themeMode.resolveDark(isSystemInDarkTheme())
     val activity = LocalContext.current as ComponentActivity
     val lifecycleOwner = LocalLifecycleOwner.current
     val scrimColor = SystemBars.scrimColor(darkTheme)
 
+    // Gold polling lifecycle
     DisposableEffect(lifecycleOwner, dashboardViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -47,6 +54,39 @@ fun StockDashboardApp(
         }
     }
 
+    // Sync float/notification state from SharedPrefs on resume (service may have changed them)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                themeViewModel.syncFromPrefs()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Start/stop DashboardService when prefs change
+    LaunchedEffect(showFloat, showNotification) {
+        if (showFloat || showNotification) {
+            DashboardService.update(activity)
+        } else {
+            DashboardService.stop(activity)
+        }
+    }
+
+    // Re-configure service when overlay content prefs change
+    LaunchedEffect(overlayNasdaq, overlayGold, overlayFunds) {
+        if (showFloat || showNotification) DashboardService.update(activity)
+        FundWidget.requestUpdate(activity)
+    }
+
+    // When user closes float from X button, sync pref in ViewModel
+    LaunchedEffect(Unit) {
+        DashboardService.floatClosed.collect {
+            themeViewModel.setShowFloat(false)
+        }
+    }
+
     SideEffect {
         val navStyle = if (darkTheme) {
             SystemBarStyle.dark(scrimColor)
@@ -54,7 +94,6 @@ fun StockDashboardApp(
             SystemBarStyle.light(scrimColor, scrimColor)
         }
         activity.enableEdgeToEdge(
-            // 顶部渐变 Hero 始终为深色调，状态栏图标固定用浅色（白）
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = navStyle
         )
@@ -73,10 +112,11 @@ fun StockDashboardApp(
             showGold = showGold,
             onShowGoldChange = themeViewModel::setShowGold,
             floatRunning = floatRunning,
+            showFloat = showFloat,
             onFloatToggle = {
-                if (!floatRunning) {
+                if (!showFloat) {
                     if (Settings.canDrawOverlays(activity)) {
-                        FloatWindowService.start(activity)
+                        themeViewModel.setShowFloat(true)
                     } else {
                         Toast.makeText(activity, "请开启悬浮窗权限后再试", Toast.LENGTH_SHORT).show()
                         activity.startActivity(
@@ -87,9 +127,17 @@ fun StockDashboardApp(
                         )
                     }
                 } else {
-                    FloatWindowService.stop(activity)
+                    themeViewModel.setShowFloat(false)
                 }
             },
+            showNotification = showNotification,
+            onNotificationToggle = { themeViewModel.setShowNotification(!showNotification) },
+            overlayNasdaq = overlayNasdaq,
+            onOverlayNasdaqChange = themeViewModel::setOverlayNasdaq,
+            overlayGold = overlayGold,
+            onOverlayGoldChange = themeViewModel::setOverlayGold,
+            overlayFunds = overlayFunds,
+            onOverlayFundsChange = themeViewModel::setOverlayFunds,
             onRefresh = dashboardViewModel::refreshAll,
             onFundSelected = dashboardViewModel::selectFund,
             onBack = dashboardViewModel::closeDetail,

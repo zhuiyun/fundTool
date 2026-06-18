@@ -80,7 +80,16 @@ fun DashboardRoute(
     showGold: Boolean,
     onShowGoldChange: (Boolean) -> Unit,
     floatRunning: Boolean,
+    showFloat: Boolean,
     onFloatToggle: () -> Unit,
+    showNotification: Boolean,
+    onNotificationToggle: () -> Unit,
+    overlayNasdaq: Boolean,
+    onOverlayNasdaqChange: (Boolean) -> Unit,
+    overlayGold: Boolean,
+    onOverlayGoldChange: (Boolean) -> Unit,
+    overlayFunds: Boolean,
+    onOverlayFundsChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     onFundSelected: (Int) -> Unit,
     onBack: () -> Unit,
@@ -118,8 +127,16 @@ fun DashboardRoute(
             onThemeModeSelected = onThemeModeSelected,
             showGold = showGold,
             onShowGoldChange = onShowGoldChange,
-            floatRunning = floatRunning,
+            showFloat = showFloat,
             onFloatToggle = onFloatToggle,
+            showNotification = showNotification,
+            onNotificationToggle = onNotificationToggle,
+            overlayNasdaq = overlayNasdaq,
+            onOverlayNasdaqChange = onOverlayNasdaqChange,
+            overlayGold = overlayGold,
+            onOverlayGoldChange = onOverlayGoldChange,
+            overlayFunds = overlayFunds,
+            onOverlayFundsChange = onOverlayFundsChange,
             onRefresh = onRefresh,
             onFundSelected = onFundSelected
         )
@@ -139,8 +156,16 @@ private fun HomeScreen(
     onThemeModeSelected: (ThemeMode) -> Unit,
     showGold: Boolean,
     onShowGoldChange: (Boolean) -> Unit,
-    floatRunning: Boolean,
+    showFloat: Boolean,
     onFloatToggle: () -> Unit,
+    showNotification: Boolean,
+    onNotificationToggle: () -> Unit,
+    overlayNasdaq: Boolean,
+    onOverlayNasdaqChange: (Boolean) -> Unit,
+    overlayGold: Boolean,
+    onOverlayGoldChange: (Boolean) -> Unit,
+    overlayFunds: Boolean,
+    onOverlayFundsChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     onFundSelected: (Int) -> Unit
 ) {
@@ -165,8 +190,16 @@ private fun HomeScreen(
                 themeMode = themeMode,
                 onThemeModeSelected = onThemeModeSelected,
                 onShowGoldChange = onShowGoldChange,
-                floatRunning = floatRunning,
+                showFloat = showFloat,
                 onFloatToggle = onFloatToggle,
+                showNotification = showNotification,
+                onNotificationToggle = onNotificationToggle,
+                overlayNasdaq = overlayNasdaq,
+                onOverlayNasdaqChange = onOverlayNasdaqChange,
+                overlayGold = overlayGold,
+                onOverlayGoldChange = onOverlayGoldChange,
+                overlayFunds = overlayFunds,
+                onOverlayFundsChange = onOverlayFundsChange,
                 onRefresh = onRefresh
             )
         }
@@ -258,8 +291,16 @@ private fun HomeHeader(
     themeMode: ThemeMode,
     onThemeModeSelected: (ThemeMode) -> Unit,
     onShowGoldChange: (Boolean) -> Unit,
-    floatRunning: Boolean,
+    showFloat: Boolean,
     onFloatToggle: () -> Unit,
+    showNotification: Boolean,
+    onNotificationToggle: () -> Unit,
+    overlayNasdaq: Boolean,
+    onOverlayNasdaqChange: (Boolean) -> Unit,
+    overlayGold: Boolean,
+    onOverlayGoldChange: (Boolean) -> Unit,
+    overlayFunds: Boolean,
+    onOverlayFundsChange: (Boolean) -> Unit,
     onRefresh: () -> Unit
 ) {
     Column(
@@ -285,8 +326,16 @@ private fun HomeHeader(
                 onModeSelected = onThemeModeSelected,
                 showGold = showGold,
                 onShowGoldChange = onShowGoldChange,
-                floatRunning = floatRunning,
+                showFloat = showFloat,
                 onFloatToggle = onFloatToggle,
+                showNotification = showNotification,
+                onNotificationToggle = onNotificationToggle,
+                overlayNasdaq = overlayNasdaq,
+                onOverlayNasdaqChange = onOverlayNasdaqChange,
+                overlayGold = overlayGold,
+                onOverlayGoldChange = onOverlayGoldChange,
+                overlayFunds = overlayFunds,
+                onOverlayFundsChange = onOverlayFundsChange,
                 tint = OnHero
             )
             IconButton(onClick = onRefresh) {
@@ -387,19 +436,25 @@ private fun SettingsMenu(
     onModeSelected: (ThemeMode) -> Unit,
     showGold: Boolean,
     onShowGoldChange: (Boolean) -> Unit,
-    floatRunning: Boolean,
+    showFloat: Boolean,
     onFloatToggle: () -> Unit,
+    showNotification: Boolean,
+    onNotificationToggle: () -> Unit,
+    overlayNasdaq: Boolean,
+    onOverlayNasdaqChange: (Boolean) -> Unit,
+    overlayGold: Boolean,
+    onOverlayGoldChange: (Boolean) -> Unit,
+    overlayFunds: Boolean,
+    onOverlayFundsChange: (Boolean) -> Unit,
     tint: Color = TextPrimary
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val anyOverlayActive = showFloat || showNotification
     Box {
         IconButton(onClick = { expanded = true }) {
             Icon(Icons.Rounded.Palette, contentDescription = "设置", tint = tint)
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             ThemeMode.entries.forEach { mode ->
                 DropdownMenuItem(
                     text = {
@@ -427,21 +482,52 @@ private fun SettingsMenu(
             HorizontalDivider()
             DropdownMenuItem(
                 text = { Text("显示金价") },
-                trailingIcon = {
-                    Switch(checked = showGold, onCheckedChange = null)
-                },
+                trailingIcon = { Switch(checked = showGold, onCheckedChange = null) },
                 onClick = { onShowGoldChange(!showGold) }
             )
+            HorizontalDivider()
             DropdownMenuItem(
                 text = { Text("悬浮窗") },
-                trailingIcon = {
-                    Switch(checked = floatRunning, onCheckedChange = null)
-                },
+                trailingIcon = { Switch(checked = showFloat, onCheckedChange = null) },
                 onClick = {
                     expanded = false
                     onFloatToggle()
                 }
             )
+            DropdownMenuItem(
+                text = { Text("常驻通知") },
+                trailingIcon = { Switch(checked = showNotification, onCheckedChange = null) },
+                onClick = { onNotificationToggle() }
+            )
+            if (anyOverlayActive) {
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "叠加显示内容",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    onClick = {},
+                    enabled = false
+                )
+                DropdownMenuItem(
+                    text = { Text("纳斯达克") },
+                    trailingIcon = { Switch(checked = overlayNasdaq, onCheckedChange = null) },
+                    onClick = { onOverlayNasdaqChange(!overlayNasdaq) }
+                )
+                DropdownMenuItem(
+                    text = { Text("现货黄金") },
+                    trailingIcon = { Switch(checked = overlayGold, onCheckedChange = null) },
+                    onClick = { onOverlayGoldChange(!overlayGold) }
+                )
+                DropdownMenuItem(
+                    text = { Text("基金涨跌") },
+                    trailingIcon = { Switch(checked = overlayFunds, onCheckedChange = null) },
+                    onClick = { onOverlayFundsChange(!overlayFunds) }
+                )
+            }
         }
     }
 }

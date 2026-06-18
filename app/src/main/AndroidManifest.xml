@@ -23,7 +23,7 @@
         </activity>
 
         <service
-            android:name=".FloatWindowService"
+            android:name=".DashboardService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property

@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="wrap_content"
+    android:layout_width="188dp"
     android:layout_height="wrap_content"
     android:background="@drawable/float_bg"
     android:elevation="8dp"
-    android:minWidth="110dp"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="12dp">
 
+    <!-- Header: title + close -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -20,35 +20,106 @@
             android:layout_weight="1"
             android:text="基金估值"
             android:textColor="#AAFFFFFF"
-            android:textSize="10sp" />
+            android:textSize="11sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/float_close"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:paddingBottom="2dp"
-            android:paddingStart="10dp"
-            android:paddingTop="2dp"
+            android:paddingBottom="4dp"
+            android:paddingStart="12dp"
             android:text="×"
-            android:textColor="#88FFFFFF"
-            android:textSize="16sp" />
+            android:textColor="#66FFFFFF"
+            android:textSize="18sp" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/float_value"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="加载中..."
-        android:textColor="#FFFFFF"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:layout_marginBottom="6dp"
+        android:layout_marginTop="7dp"
+        android:background="#33FFFFFF" />
 
-    <TextView
-        android:id="@+id/float_sub"
-        android:layout_width="wrap_content"
+    <!-- Nasdaq row -->
+    <LinearLayout
+        android:id="@+id/float_nasdaq_row"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:textColor="#AAFFFFFF"
-        android:textSize="10sp" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp"
+        android:paddingTop="2dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="纳斯达克"
+            android:textColor="#88FFFFFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/float_nasdaq_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Gold row -->
+    <LinearLayout
+        android:id="@+id/float_gold_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp"
+        android:paddingTop="2dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="现货黄金"
+            android:textColor="#88FFFFFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/float_gold_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFE88A"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Funds row -->
+    <LinearLayout
+        android:id="@+id/float_funds_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="2dp"
+        android:paddingTop="2dp">
+
+        <TextView
+            android:id="@+id/float_funds_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/float_funds_top"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="end"
+            android:textColor="#AAFFFFFF"
+            android:textSize="10sp" />
+    </LinearLayout>
+
 </LinearLayout>
