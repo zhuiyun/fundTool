@@ -29,6 +29,9 @@ class ThemeViewModel(
     private val mutableOverlayFunds = MutableStateFlow(preferenceStore.loadOverlayFunds())
     val overlayFunds: StateFlow<Boolean> = mutableOverlayFunds.asStateFlow()
 
+    private val mutableShowLiveUpdate = MutableStateFlow(preferenceStore.loadShowLiveUpdate())
+    val showLiveUpdate: StateFlow<Boolean> = mutableShowLiveUpdate.asStateFlow()
+
     fun select(mode: ThemeMode) {
         mutableMode.value = mode
         preferenceStore.save(mode)
@@ -64,8 +67,14 @@ class ThemeViewModel(
         preferenceStore.saveOverlayFunds(show)
     }
 
+    fun setShowLiveUpdate(show: Boolean) {
+        mutableShowLiveUpdate.value = show
+        preferenceStore.saveShowLiveUpdate(show)
+    }
+
     fun syncFromPrefs() {
         mutableShowFloat.value = preferenceStore.loadShowFloat()
         mutableShowNotification.value = preferenceStore.loadShowNotification()
+        mutableShowLiveUpdate.value = preferenceStore.loadShowLiveUpdate()
     }
 }

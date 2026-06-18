@@ -90,6 +90,8 @@ fun DashboardRoute(
     onOverlayGoldChange: (Boolean) -> Unit,
     overlayFunds: Boolean,
     onOverlayFundsChange: (Boolean) -> Unit,
+    showLiveUpdate: Boolean,
+    onShowLiveUpdateChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     onFundSelected: (Int) -> Unit,
     onBack: () -> Unit,
@@ -137,6 +139,8 @@ fun DashboardRoute(
             onOverlayGoldChange = onOverlayGoldChange,
             overlayFunds = overlayFunds,
             onOverlayFundsChange = onOverlayFundsChange,
+            showLiveUpdate = showLiveUpdate,
+            onShowLiveUpdateChange = onShowLiveUpdateChange,
             onRefresh = onRefresh,
             onFundSelected = onFundSelected
         )
@@ -166,6 +170,8 @@ private fun HomeScreen(
     onOverlayGoldChange: (Boolean) -> Unit,
     overlayFunds: Boolean,
     onOverlayFundsChange: (Boolean) -> Unit,
+    showLiveUpdate: Boolean,
+    onShowLiveUpdateChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     onFundSelected: (Int) -> Unit
 ) {
@@ -200,6 +206,8 @@ private fun HomeScreen(
                 onOverlayGoldChange = onOverlayGoldChange,
                 overlayFunds = overlayFunds,
                 onOverlayFundsChange = onOverlayFundsChange,
+                showLiveUpdate = showLiveUpdate,
+                onShowLiveUpdateChange = onShowLiveUpdateChange,
                 onRefresh = onRefresh
             )
         }
@@ -301,6 +309,8 @@ private fun HomeHeader(
     onOverlayGoldChange: (Boolean) -> Unit,
     overlayFunds: Boolean,
     onOverlayFundsChange: (Boolean) -> Unit,
+    showLiveUpdate: Boolean,
+    onShowLiveUpdateChange: (Boolean) -> Unit,
     onRefresh: () -> Unit
 ) {
     Column(
@@ -336,6 +346,8 @@ private fun HomeHeader(
                 onOverlayGoldChange = onOverlayGoldChange,
                 overlayFunds = overlayFunds,
                 onOverlayFundsChange = onOverlayFundsChange,
+                showLiveUpdate = showLiveUpdate,
+                onShowLiveUpdateChange = onShowLiveUpdateChange,
                 tint = OnHero
             )
             IconButton(onClick = onRefresh) {
@@ -446,10 +458,12 @@ private fun SettingsMenu(
     onOverlayGoldChange: (Boolean) -> Unit,
     overlayFunds: Boolean,
     onOverlayFundsChange: (Boolean) -> Unit,
+    showLiveUpdate: Boolean,
+    onShowLiveUpdateChange: (Boolean) -> Unit,
     tint: Color = TextPrimary
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val anyOverlayActive = showFloat || showNotification
+    val anyOverlayActive = showFloat || showNotification || showLiveUpdate
     Box {
         IconButton(onClick = { expanded = true }) {
             Icon(Icons.Rounded.Palette, contentDescription = "设置", tint = tint)
@@ -498,6 +512,11 @@ private fun SettingsMenu(
                 text = { Text("常驻通知") },
                 trailingIcon = { Switch(checked = showNotification, onCheckedChange = null) },
                 onClick = { onNotificationToggle() }
+            )
+            DropdownMenuItem(
+                text = { Text("流体云") },
+                trailingIcon = { Switch(checked = showLiveUpdate, onCheckedChange = null) },
+                onClick = { onShowLiveUpdateChange(!showLiveUpdate) }
             )
             if (anyOverlayActive) {
                 HorizontalDivider()

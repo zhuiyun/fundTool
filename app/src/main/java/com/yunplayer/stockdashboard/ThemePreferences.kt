@@ -17,6 +17,8 @@ interface ThemePreferenceStore {
     fun saveOverlayGold(show: Boolean) {}
     fun loadOverlayFunds(): Boolean = true
     fun saveOverlayFunds(show: Boolean) {}
+    fun loadShowLiveUpdate(): Boolean = false
+    fun saveShowLiveUpdate(show: Boolean) {}
 }
 
 class SharedPreferencesThemePreferenceStore(context: Context) : ThemePreferenceStore {
@@ -48,12 +50,16 @@ class SharedPreferencesThemePreferenceStore(context: Context) : ThemePreferenceS
     override fun loadOverlayFunds(): Boolean = preferences.getBoolean(KEY_OVERLAY_FUNDS, true)
     override fun saveOverlayFunds(show: Boolean) { preferences.edit().putBoolean(KEY_OVERLAY_FUNDS, show).apply() }
 
+    override fun loadShowLiveUpdate(): Boolean = preferences.getBoolean(KEY_SHOW_LIVE_UPDATE, false)
+    override fun saveShowLiveUpdate(show: Boolean) { preferences.edit().putBoolean(KEY_SHOW_LIVE_UPDATE, show).apply() }
+
     private companion object {
         const val FILE_NAME = "theme_preferences"
         const val KEY_MODE = "theme_mode"
         const val KEY_SHOW_GOLD = "show_gold"
         const val KEY_SHOW_FLOAT = "show_float"
         const val KEY_SHOW_NOTIFICATION = "show_notification"
+        const val KEY_SHOW_LIVE_UPDATE = "show_live_update"
         const val KEY_OVERLAY_NASDAQ = "overlay_nasdaq"
         const val KEY_OVERLAY_GOLD = "overlay_gold"
         const val KEY_OVERLAY_FUNDS = "overlay_funds"

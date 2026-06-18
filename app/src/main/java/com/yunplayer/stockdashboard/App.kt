@@ -1,19 +1,25 @@
 package com.yunplayer.stockdashboard
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -29,6 +35,7 @@ fun StockDashboardApp(
     val showGold = themeViewModel.showGold.collectAsStateWithLifecycle().value
     val showFloat = themeViewModel.showFloat.collectAsStateWithLifecycle().value
     val showNotification = themeViewModel.showNotification.collectAsStateWithLifecycle().value
+    val showLiveUpdate = themeViewModel.showLiveUpdate.collectAsStateWithLifecycle().value
     val floatRunning = DashboardService.floatRunning.collectAsStateWithLifecycle().value
     val overlayNasdaq = themeViewModel.overlayNasdaq.collectAsStateWithLifecycle().value
     val overlayGold = themeViewModel.overlayGold.collectAsStateWithLifecycle().value
@@ -37,6 +44,26 @@ fun StockDashboardApp(
     val activity = LocalContext.current as ComponentActivity
     val lifecycleOwner = LocalLifecycleOwner.current
     val scrimColor = SystemBars.scrimColor(darkTheme)
+
+    val notificationPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            themeViewModel.setShowNotification(true)
+        } else {
+            Toast.makeText(activity, "请开启通知权限后再试", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val liveUpdatePermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            themeViewModel.setShowLiveUpdate(true)
+        } else {
+            Toast.makeText(activity, "请开启通知权限后再试", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Gold polling lifecycle
     DisposableEffect(lifecycleOwner, dashboardViewModel) {
@@ -66,8 +93,8 @@ fun StockDashboardApp(
     }
 
     // Start/stop DashboardService when prefs change
-    LaunchedEffect(showFloat, showNotification) {
-        if (showFloat || showNotification) {
+    LaunchedEffect(showFloat, showNotification, showLiveUpdate) {
+        if (showFloat || showNotification || showLiveUpdate) {
             DashboardService.update(activity)
         } else {
             DashboardService.stop(activity)
@@ -76,7 +103,7 @@ fun StockDashboardApp(
 
     // Re-configure service when overlay content prefs change
     LaunchedEffect(overlayNasdaq, overlayGold, overlayFunds) {
-        if (showFloat || showNotification) DashboardService.update(activity)
+        if (showFloat || showNotification || showLiveUpdate) DashboardService.update(activity)
         FundWidget.requestUpdate(activity)
     }
 
@@ -131,13 +158,37 @@ fun StockDashboardApp(
                 }
             },
             showNotification = showNotification,
-            onNotificationToggle = { themeViewModel.setShowNotification(!showNotification) },
+            onNotificationToggle = {
+                if (showNotification) {
+                    themeViewModel.setShowNotification(false)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    themeViewModel.setShowNotification(true)
+                }
+            },
             overlayNasdaq = overlayNasdaq,
             onOverlayNasdaqChange = themeViewModel::setOverlayNasdaq,
             overlayGold = overlayGold,
             onOverlayGoldChange = themeViewModel::setOverlayGold,
             overlayFunds = overlayFunds,
             onOverlayFundsChange = themeViewModel::setOverlayFunds,
+            showLiveUpdate = showLiveUpdate,
+            onShowLiveUpdateChange = {
+                if (showLiveUpdate) {
+                    themeViewModel.setShowLiveUpdate(false)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
+                    liveUpdatePermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    themeViewModel.setShowLiveUpdate(true)
+                }
+            },
             onRefresh = dashboardViewModel::refreshAll,
             onFundSelected = dashboardViewModel::selectFund,
             onBack = dashboardViewModel::closeDetail,
