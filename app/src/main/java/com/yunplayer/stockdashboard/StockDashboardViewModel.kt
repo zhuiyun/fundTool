@@ -49,10 +49,16 @@ class StockDashboardViewModel(
             viewModelScope.launch {
                 while (true) {
                     delay(autoRefreshMillis)
-                    if (currentHour() == 10 || currentHour() == 20) refresh()
+                    if (isUsTradingHours()) refresh()
                 }
             }
         }
+    }
+
+    // 美股盘前(16:00 CST)至收盘(次日05:00 CST，兼容冬令时)
+    private fun isUsTradingHours(): Boolean {
+        val hour = currentHour()
+        return hour >= 16 || hour < 5
     }
 
     fun refresh() {
