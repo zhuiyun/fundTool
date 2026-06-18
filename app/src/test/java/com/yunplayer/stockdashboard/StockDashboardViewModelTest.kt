@@ -102,6 +102,42 @@ class StockDashboardViewModelTest {
     }
 
     @Test
+    fun autoRefreshFiresDuringUsTradingHours() = runTest(dispatcher) {
+        val dataSource = CountingStockDataSource()
+        val viewModel = StockDashboardViewModel(
+            dataSource = dataSource,
+            autoRefreshMillis = 60_000L,
+            currentHour = { 20 } // 美股盘中时段
+        )
+        advanceUntilIdle()
+        val callsAfterInit = dataSource.dashboardCalls
+
+        advanceTimeBy(60_000L)
+        runCurrent()
+
+        assertEquals(callsAfterInit + 1, dataSource.dashboardCalls)
+        viewModel.closeDetail()
+    }
+
+    @Test
+    fun autoRefreshSkipsOutsideUsTradingHours() = runTest(dispatcher) {
+        val dataSource = CountingStockDataSource()
+        val viewModel = StockDashboardViewModel(
+            dataSource = dataSource,
+            autoRefreshMillis = 60_000L,
+            currentHour = { 10 } // 非美股时段（A股盘中，美股未开盘）
+        )
+        advanceUntilIdle()
+        val callsAfterInit = dataSource.dashboardCalls
+
+        advanceTimeBy(60_000L)
+        runCurrent()
+
+        assertEquals(callsAfterInit, dataSource.dashboardCalls)
+        viewModel.closeDetail()
+    }
+
+    @Test
     fun goldPollingStartsImmediatelyAndRepeatsOncePerSecond() = runTest(dispatcher) {
         val goldSource = CountingGoldDataSource()
         val viewModel = StockDashboardViewModel(
@@ -272,6 +308,20 @@ private class SequencedGoldDataSource : GoldDataSource {
             2 -> error("金价网络错误")
             else -> GoldQuote(789.0, 780.0, 9.0, 1.15, 2L)
         }
+    }
+}
+
+private class CountingStockDataSource : StockDataSource {
+    var dashboardCalls: Int = 0
+        private set
+
+    override suspend fun fetchDashboard(): Dashboard {
+        dashboardCalls += 1
+        return Dashboard(emptyList(), emptyList(), "", "", false)
+    }
+
+    override suspend fun fetchDetail(id: Int): FundDetail {
+        return FundDetail(id, "", 0.0, "", emptyList())
     }
 }
 
