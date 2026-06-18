@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -96,6 +97,16 @@ fun StockDashboardApp(
     LaunchedEffect(showFloat, showNotification, showLiveUpdate) {
         if (showFloat || showNotification || showLiveUpdate) {
             DashboardService.update(activity)
+            // Request battery optimization exemption so the service stays alive on OPPO/ColorOS
+            val pm = activity.getSystemService(PowerManager::class.java)
+            if (!pm.isIgnoringBatteryOptimizations(activity.packageName)) {
+                runCatching {
+                    activity.startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                            .setData(Uri.parse("package:${activity.packageName}"))
+                    )
+                }
+            }
         } else {
             DashboardService.stop(activity)
         }

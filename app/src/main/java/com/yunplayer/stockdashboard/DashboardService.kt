@@ -10,6 +10,7 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -80,7 +81,7 @@ class DashboardService : Service() {
         }
         applyFloatState(p)
         refreshNotification(p)
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     // ── Polling ───────────────────────────────────────────────────────────────
@@ -256,7 +257,6 @@ class DashboardService : Service() {
         val showRich = p.showNotification || p.showLiveUpdate
         val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
 
-        // Use native Notification.Builder so we can cast MetricStyle from reflection
         val nativeBuilder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
             .setOngoing(true)
@@ -270,7 +270,6 @@ class DashboardService : Service() {
                 .build()
         }
 
-        // InboxStyle for the expanded notification drawer view
         val inboxStyle = Notification.InboxStyle()
         if (p.showNasdaq) {
             nasdaqEntries.forEach { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
@@ -289,24 +288,45 @@ class DashboardService : Service() {
         if (dashboard != null) inboxStyle.setSummaryText("更新于 ${dashboard.timestamp}")
 
         if (Build.VERSION.SDK_INT >= 36 && p.showLiveUpdate) {
-            // Attempt 1: use Notification.MetricStyle via reflection (the proper Android 16 API
-            // for Live Update chips; not in the public SDK jar but exists on Android 16 devices)
-            val usedMetricStyle = tryBuildWithMetricStyle(nativeBuilder, p, nasdaqEntries, dashboard, gold)
+            // Step 1: request chip promotion on the Builder BEFORE build() — this is the critical call.
+            // Notification.Builder.setRequestPromotedOngoing(boolean) was added in API 36.
+            // Previous code called this on MetricStyle (which doesn't have the method) causing silent failure.
+            applyRequestPromotedOngoing(nativeBuilder)
 
-            if (!usedMetricStyle) {
-                // Attempt 2: InboxStyle + set requestPromotedOngoing on the BUILT notification.
-                // Setting it on notification.extras after build() is confirmed to work on HyperOS.
+            // Step 2: try MetricStyle to show metric data inside the chip
+            val metricApplied = tryBuildWithMetricStyle(nativeBuilder, p, nasdaqEntries, dashboard, gold)
+            if (!metricApplied) {
                 nativeBuilder.setStyle(inboxStyle)
-                val notif = nativeBuilder.build()
-                notif.extras.putBoolean("android.requestPromotedOngoing", true)
-                return notif
             }
-            return nativeBuilder.build()
+
+            val notif = nativeBuilder.build()
+            // Belt-and-suspenders: some OEMs (e.g. HyperOS) also need this set post-build
+            runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
+            return notif
         }
 
-        return nativeBuilder
-            .setStyle(inboxStyle)
-            .build()
+        return nativeBuilder.setStyle(inboxStyle).build()
+    }
+
+    /**
+     * Calls Notification.Builder.setRequestPromotedOngoing(true) via reflection — must happen
+     * BEFORE build() for the Live Update chip to appear on OPPO ColorOS and other Android 16 OEMs.
+     */
+    private fun applyRequestPromotedOngoing(builder: Notification.Builder) {
+        try {
+            builder.javaClass
+                .getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
+                .invoke(builder, true)
+            return
+        } catch (_: Exception) { }
+        // Fallback: inject via addExtras() before build()
+        try {
+            val b = Bundle()
+            b.putBoolean("android.requestPromotedOngoing", true)
+            builder.javaClass
+                .getMethod("addExtras", Bundle::class.java)
+                .invoke(builder, b)
+        } catch (_: Exception) { }
     }
 
     /** Returns true if MetricStyle was applied successfully. */
@@ -320,9 +340,9 @@ class DashboardService : Service() {
         return try {
             val msCls = Class.forName("android.app.Notification\$MetricStyle")
             val ms = msCls.getDeclaredConstructor().newInstance() as Notification.Style
-            msCls.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType).invoke(ms, true)
+            // setRequestPromotedOngoing is on Notification.Builder, NOT on MetricStyle —
+            // it is handled by applyRequestPromotedOngoing() called before build().
 
-            // Try to populate Metric items so the chip shows real data
             try {
                 val mCls = Class.forName("android.app.Notification\$Metric")
                 val mbCls = Class.forName("android.app.Notification\$Metric\$Builder")
@@ -351,12 +371,10 @@ class DashboardService : Service() {
                 }
                 if (items.isNotEmpty()) {
                     val arr = java.lang.reflect.Array.newInstance(mCls, items.size)
-                    items.forEachIndexed { i, m ->
-                        java.lang.reflect.Array.set(arr, i, m)
-                    }
+                    items.forEachIndexed { i, m -> java.lang.reflect.Array.set(arr, i, m) }
                     msCls.getMethod("setMetrics", arr.javaClass).invoke(ms, arr)
                 }
-            } catch (_: Exception) { /* metrics optional */ }
+            } catch (_: Exception) { /* metrics optional — chip still appears via requestPromotedOngoing */ }
 
             builder.setStyle(ms)
             true
