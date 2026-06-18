@@ -270,6 +270,19 @@ class DashboardService : Service() {
                 .build()
         }
 
+        // Compact one-liner shown in collapsed notification view
+        val compactParts = buildList {
+            if (p.showNasdaq && nasdaqEntries.isNotEmpty())
+                add("纳 " + nasdaqEntries.joinToString(" / ") { it.changePercent })
+            if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
+            if (p.showFunds && dashboard != null) {
+                val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                add("涨$up 跌$down")
+            }
+        }
+        nativeBuilder.setContentText(compactParts.joinToString("  ·  ").ifEmpty { "加载中..." })
+
         val inboxStyle = Notification.InboxStyle()
         if (p.showNasdaq) {
             nasdaqEntries.forEach { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
@@ -285,22 +298,17 @@ class DashboardService : Service() {
             val topText = top?.let { "  ${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""
             inboxStyle.addLine("涨$up / 跌$down$topText")
         }
-        if (dashboard != null) inboxStyle.setSummaryText("更新于 ${dashboard.timestamp}")
+        // Use raw timestamp as summary — avoids "更新于 更新于 …" double prefix on ColorOS
+        if (dashboard != null) inboxStyle.setSummaryText(dashboard.timestamp)
 
-        if (Build.VERSION.SDK_INT >= 36 && p.showLiveUpdate) {
-            // Step 1: request chip promotion on the Builder BEFORE build() — this is the critical call.
-            // Notification.Builder.setRequestPromotedOngoing(boolean) was added in API 36.
-            // Previous code called this on MetricStyle (which doesn't have the method) causing silent failure.
+        if (p.showLiveUpdate) {
+            // Remove API-36 gate: reflection calls fail gracefully on lower APIs,
+            // so it's safe to attempt on any version OPPO ships Android 16 on.
             applyRequestPromotedOngoing(nativeBuilder)
-
-            // Step 2: try MetricStyle to show metric data inside the chip
             val metricApplied = tryBuildWithMetricStyle(nativeBuilder, p, nasdaqEntries, dashboard, gold)
-            if (!metricApplied) {
-                nativeBuilder.setStyle(inboxStyle)
-            }
-
+            if (!metricApplied) nativeBuilder.setStyle(inboxStyle)
             val notif = nativeBuilder.build()
-            // Belt-and-suspenders: some OEMs (e.g. HyperOS) also need this set post-build
+            // Belt-and-suspenders: some OEMs also need this set post-build
             runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
             return notif
         }
