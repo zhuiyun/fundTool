@@ -20,11 +20,7 @@ private data class StockColors(
     val trendUpStart: Color,
     val trendUpEnd: Color,
     val trendDownStart: Color,
-    val trendDownEnd: Color,
-    val upContainer: Color,
-    val upBorder: Color,
-    val downContainer: Color,
-    val downBorder: Color
+    val trendDownEnd: Color
 )
 
 private val DarkStockColors = StockColors(
@@ -37,11 +33,7 @@ private val DarkStockColors = StockColors(
     trendUpStart = Color(0xFFE0565A),
     trendUpEnd = Color(0xFFF07E80),
     trendDownStart = Color(0xFF1BA866),
-    trendDownEnd = Color(0xFF3FCE82),
-    upContainer = Color(0xFF221619),
-    upBorder = Color(0x33FF6B6B),
-    downContainer = Color(0xFF15211C),
-    downBorder = Color(0x332BD67B)
+    trendDownEnd = Color(0xFF3FCE82)
 )
 
 private val LightStockColors = StockColors(
@@ -54,11 +46,7 @@ private val LightStockColors = StockColors(
     trendUpStart = Color(0xFFD8474C),
     trendUpEnd = Color(0xFFE9696C),
     trendDownStart = Color(0xFF138A4C),
-    trendDownEnd = Color(0xFF2BB06B),
-    upContainer = Color(0xFFFFF3F3),
-    upBorder = Color(0x33E5484D),
-    downContainer = Color(0xFFEFFBF4),
-    downBorder = Color(0x3315A05A)
+    trendDownEnd = Color(0xFF2BB06B)
 )
 
 private val LocalStockColors = staticCompositionLocalOf { DarkStockColors }
@@ -139,26 +127,6 @@ fun trendGradientColors(value: Double): List<Color> {
         value > 0.0 -> listOf(colors.trendUpStart, colors.trendUpEnd)
         value < 0.0 -> listOf(colors.trendDownStart, colors.trendDownEnd)
         else -> listOf(colors.trendFlat, colors.trendFlat)
-    }
-}
-
-@Composable
-fun trendContainerColor(value: Double): Color {
-    val colors = LocalStockColors.current
-    return when {
-        value > 0.0 -> colors.upContainer
-        value < 0.0 -> colors.downContainer
-        else -> colors.elevatedSurface
-    }
-}
-
-@Composable
-fun trendBorderColor(value: Double): Color {
-    val colors = LocalStockColors.current
-    return when {
-        value > 0.0 -> colors.upBorder
-        value < 0.0 -> colors.downBorder
-        else -> colors.cardBorder
     }
 }
 
