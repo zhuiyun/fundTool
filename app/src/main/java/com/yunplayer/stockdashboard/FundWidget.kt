@@ -66,9 +66,9 @@ class FundWidget : AppWidgetProvider() {
             )
         }
 
-        fun buildViews(
+        private fun buildViews(
             context: Context,
-            prefs: WidgetPrefs = loadWidgetPrefs(context),
+            prefs: WidgetPrefs,
             dashboard: Dashboard?,
             gold: GoldQuote?
         ): RemoteViews {
