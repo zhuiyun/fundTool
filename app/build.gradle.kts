@@ -22,6 +22,9 @@ android {
             "BASE_URL",
             "\"https://web.345569.xyz/\""
         )
+
+        // 只保留中英文语言资源，剥掉 Compose 依赖带来的其余语言包
+        resourceConfigurations += setOf("zh", "zh-rCN", "en")
     }
 
     signingConfigs {
@@ -71,7 +74,14 @@ android {
     }
 
     packaging {
-        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        resources.excludes += setOf(
+            "/META-INF/{AL2.0,LGPL2.1}",
+            "DebugProbesKt.bin",
+            "/META-INF/versions/**",
+            "kotlin-tooling-metadata.json",
+            "/*.properties",
+            "/META-INF/*.kotlin_module",
+        )
     }
 
     lint {
