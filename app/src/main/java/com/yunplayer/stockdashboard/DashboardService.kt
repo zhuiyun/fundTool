@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -16,6 +17,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -234,6 +236,63 @@ class DashboardService : Service() {
     }
 
     private fun buildNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
+        return if (Build.VERSION.SDK_INT >= 36 && p.showNotification) {
+            buildLiveUpdateNotification(p, dashboard, gold)
+        } else {
+            buildLegacyNotification(p, dashboard, gold)
+        }
+    }
+
+    @RequiresApi(36)
+    private fun buildLiveUpdateNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
+        val launchPi = PendingIntent.getActivity(
+            this, 0,
+            packageManager.getLaunchIntentForPackage(packageName),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val metrics = buildList<Notification.Metric> {
+            if (p.showNasdaq) {
+                val nasdaq = dashboard?.let { findNasdaq(it) }
+                if (nasdaq != null) {
+                    add(Notification.Metric.Builder()
+                        .setLabel("纳斯达克")
+                        .setValue(Notification.Metric.FixedText(nasdaq.changePercent))
+                        .build())
+                }
+            }
+            if (p.showGold && gold != null) {
+                add(Notification.Metric.Builder()
+                    .setLabel("黄金")
+                    .setValue(Notification.Metric.FixedText(formatGoldPrice(gold.price)))
+                    .build())
+            }
+            if (p.showFunds && dashboard != null) {
+                val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                add(Notification.Metric.Builder()
+                    .setLabel("基金")
+                    .setValue(Notification.Metric.FixedText("涨$up / 跌$down"))
+                    .build())
+            }
+        }
+
+        val style = Notification.MetricStyle().setRequestPromotedOngoing(true)
+        if (metrics.isNotEmpty()) {
+            style.setMetrics(*metrics.toTypedArray())
+        }
+
+        return Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_notify)
+            .setContentTitle("基金估值")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(launchPi)
+            .setStyle(style)
+            .build()
+    }
+
+    private fun buildLegacyNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
         val launchPi = PendingIntent.getActivity(
             this, 0,
             packageManager.getLaunchIntentForPackage(packageName),
