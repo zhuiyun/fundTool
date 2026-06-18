@@ -1,4 +1,4 @@
-name: Build Release APK
+name: Build & Release APK
 
 on:
   push:
@@ -30,6 +30,12 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(grep versionName app/build.gradle.kts | grep -oP '"\K[^"]+')
+          echo "name=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Build release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -38,13 +44,15 @@ jobs:
 
       - name: Rename APK
         run: |
-          VERSION=$(grep versionName app/build.gradle.kts | grep -oP '"\K[^"]+')
+          VERSION=${{ steps.version.outputs.name }}
           mv app/build/outputs/apk/release/app-release.apk \
-             app/build/outputs/apk/release/fund-impact-v${VERSION}-release.apk
+             app/build/outputs/apk/release/fund-impact-v${VERSION}.apk
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
         with:
-          name: fund-impact-release
-          path: app/build/outputs/apk/release/fund-impact-v*-release.apk
-          retention-days: 30
+          tag_name: v${{ steps.version.outputs.name }}
+          name: Fund Impact v${{ steps.version.outputs.name }}
+          files: app/build/outputs/apk/release/fund-impact-v*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
