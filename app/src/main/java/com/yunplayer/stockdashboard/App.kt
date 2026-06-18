@@ -1,19 +1,25 @@
 package com.yunplayer.stockdashboard
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,6 +43,16 @@ fun StockDashboardApp(
     val activity = LocalContext.current as ComponentActivity
     val lifecycleOwner = LocalLifecycleOwner.current
     val scrimColor = SystemBars.scrimColor(darkTheme)
+
+    val notificationPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            themeViewModel.setShowNotification(true)
+        } else {
+            Toast.makeText(activity, "请开启通知权限后再试", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Gold polling lifecycle
     DisposableEffect(lifecycleOwner, dashboardViewModel) {
@@ -131,7 +147,18 @@ fun StockDashboardApp(
                 }
             },
             showNotification = showNotification,
-            onNotificationToggle = { themeViewModel.setShowNotification(!showNotification) },
+            onNotificationToggle = {
+                if (showNotification) {
+                    themeViewModel.setShowNotification(false)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    themeViewModel.setShowNotification(true)
+                }
+            },
             overlayNasdaq = overlayNasdaq,
             onOverlayNasdaqChange = themeViewModel::setOverlayNasdaq,
             overlayGold = overlayGold,
