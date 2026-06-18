@@ -27,9 +27,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file("../signing/release-key.jks")
-            storePassword = "YunFund#2026!A9vK7pQ2"
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "YunFund#2026!A9vK7pQ2"
             keyAlias = "fundrelease"
-            keyPassword = "YunFund#2026!A9vK7pQ2"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "YunFund#2026!A9vK7pQ2"
         }
     }
 
