@@ -86,14 +86,19 @@ class FundWidget : AppWidgetProvider() {
             val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
             views.setTextViewText(R.id.widget_time, timeStr)
 
-            // Nasdaq row
-            val nasdaq = dashboard?.let { findNasdaq(it) }
-            val showNasdaqRow = prefs.showNasdaq && nasdaq != null
+            // Nasdaq row (composite + 100 in one line)
+            val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
+            val showNasdaqRow = prefs.showNasdaq && nasdaqEntries.isNotEmpty()
             views.setViewVisibility(R.id.widget_nasdaq_row, if (showNasdaqRow) View.VISIBLE else View.GONE)
-            if (showNasdaqRow && nasdaq != null) {
-                val pct = parsePercentText(nasdaq.changePercent)
-                views.setTextViewText(R.id.widget_nasdaq_value, nasdaq.changePercent)
-                views.setTextColor(R.id.widget_nasdaq_value, trendColor(pct))
+            if (showNasdaqRow) {
+                val composite = nasdaqEntries[0]
+                val n100 = nasdaqEntries.getOrNull(1)
+                val text = if (n100 != null)
+                    "${composite.changePercent}  /  ${n100.changePercent}"
+                else
+                    composite.changePercent
+                views.setTextViewText(R.id.widget_nasdaq_value, text)
+                views.setTextColor(R.id.widget_nasdaq_value, trendColor(parsePercentText(composite.changePercent)))
             }
 
             // Gold row
@@ -136,10 +141,14 @@ class FundWidget : AppWidgetProvider() {
             return views
         }
 
-        private fun findNasdaq(d: Dashboard): IndexImpact? =
-            d.indexes.firstOrNull {
+        private fun findNasdaqEntries(d: Dashboard): List<IndexImpact> {
+            val all = d.indexes.filter {
                 it.name.contains("纳斯达克") || it.name.contains("NASDAQ", ignoreCase = true)
             }
+            val composite = all.firstOrNull { !it.name.contains("100") }
+            val n100 = all.firstOrNull { it.name.contains("100") }
+            return listOfNotNull(composite, n100)
+        }
 
         private fun trendColor(v: Double): Int = when {
             v > 0 -> 0xFFFF9999.toInt()

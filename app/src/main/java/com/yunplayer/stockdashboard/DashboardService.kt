@@ -10,6 +10,7 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -188,15 +189,28 @@ class DashboardService : Service() {
         val dashboard = lastDashboard
         val gold = lastGold
 
+        val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
+        val composite = nasdaqEntries.getOrNull(0)
+        val n100 = nasdaqEntries.getOrNull(1)
+
         val nasdaqRow = v.findViewById<View>(R.id.float_nasdaq_row)
-        val nasdaq = dashboard?.let { findNasdaq(it) }
-        if (p.showNasdaq && nasdaq != null) {
+        if (p.showNasdaq && composite != null) {
             nasdaqRow.visibility = View.VISIBLE
             val tv = v.findViewById<TextView>(R.id.float_nasdaq_value)
-            tv.text = nasdaq.changePercent
-            tv.setTextColor(trendColorInt(parsePercentText(nasdaq.changePercent)))
+            tv.text = composite.changePercent
+            tv.setTextColor(trendColorInt(parsePercentText(composite.changePercent)))
         } else {
             nasdaqRow.visibility = View.GONE
+        }
+
+        val nasdaq100Row = v.findViewById<View>(R.id.float_nasdaq100_row)
+        if (p.showNasdaq && n100 != null) {
+            nasdaq100Row.visibility = View.VISIBLE
+            val tv100 = v.findViewById<TextView>(R.id.float_nasdaq100_value)
+            tv100.text = n100.changePercent
+            tv100.setTextColor(trendColorInt(parsePercentText(n100.changePercent)))
+        } else {
+            nasdaq100Row.visibility = View.GONE
         }
 
         val goldRow = v.findViewById<View>(R.id.float_gold_row)
@@ -235,14 +249,6 @@ class DashboardService : Service() {
     }
 
     private fun buildNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
-        val notification = buildLegacyNotification(p, dashboard, gold)
-        if (Build.VERSION.SDK_INT >= 36 && p.showLiveUpdate) {
-            notification.extras.putBoolean("android.requestPromotedOngoing", true)
-        }
-        return notification
-    }
-
-    private fun buildLegacyNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
         val launchPi = PendingIntent.getActivity(
             this, 0,
             packageManager.getLaunchIntentForPackage(packageName),
@@ -254,6 +260,13 @@ class DashboardService : Service() {
             .setOnlyAlertOnce(true)
             .setContentIntent(launchPi)
 
+        // Set Live Update extra on builder BEFORE build() so it is parcelled correctly
+        if (Build.VERSION.SDK_INT >= 36 && p.showLiveUpdate) {
+            builder.addExtras(Bundle().apply {
+                putBoolean("android.requestPromotedOngoing", true)
+            })
+        }
+
         val showRich = p.showNotification || p.showLiveUpdate
         if (!showRich) {
             return builder
@@ -262,11 +275,14 @@ class DashboardService : Service() {
                 .build()
         }
 
-        val nasdaq = dashboard?.let { findNasdaq(it) }
+        val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
 
-        // Chip title: short summary shown in Live Update chip
+        // Chip title: compact summary visible in the Live Update chip
         val chipParts = buildList {
-            if (p.showNasdaq && nasdaq != null) add("纳 ${nasdaq.changePercent}")
+            if (p.showNasdaq && nasdaqEntries.isNotEmpty()) {
+                val vals = nasdaqEntries.joinToString(" / ") { it.changePercent }
+                add("纳 $vals")
+            }
             if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
             if (p.showFunds && dashboard != null) {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
@@ -276,10 +292,10 @@ class DashboardService : Service() {
         }
         val chipTitle = chipParts.joinToString("  ·  ").ifEmpty { "加载中..." }
 
-        // InboxStyle: each data item on its own line, no truncation
+        // InboxStyle: one line per item, no truncation
         val style = NotificationCompat.InboxStyle()
-        if (p.showNasdaq && nasdaq != null) {
-            style.addLine("纳斯达克   ${nasdaq.changePercent}")
+        if (p.showNasdaq) {
+            nasdaqEntries.forEach { style.addLine("${it.name}   ${it.changePercent}") }
         }
         if (p.showGold && gold != null) {
             style.addLine("现货黄金   ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
@@ -305,10 +321,14 @@ class DashboardService : Service() {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private fun findNasdaq(d: Dashboard): IndexImpact? =
-        d.indexes.firstOrNull {
+    private fun findNasdaqEntries(d: Dashboard): List<IndexImpact> {
+        val all = d.indexes.filter {
             it.name.contains("纳斯达克") || it.name.contains("NASDAQ", ignoreCase = true)
         }
+        val composite = all.firstOrNull { !it.name.contains("100") }
+        val n100 = all.firstOrNull { it.name.contains("100") }
+        return listOfNotNull(composite, n100)
+    }
 
     private fun trendColorInt(v: Double) = when {
         v > 0 -> 0xFFEE6E70.toInt()
