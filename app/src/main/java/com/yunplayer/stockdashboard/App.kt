@@ -1,5 +1,9 @@
 package com.yunplayer.stockdashboard
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -22,6 +26,7 @@ fun StockDashboardApp(
     val state = dashboardViewModel.uiState.collectAsStateWithLifecycle().value
     val themeMode = themeViewModel.mode.collectAsStateWithLifecycle().value
     val showGold = themeViewModel.showGold.collectAsStateWithLifecycle().value
+    val floatRunning = FloatWindowService.isRunning.collectAsStateWithLifecycle().value
     val darkTheme = themeMode.resolveDark(isSystemInDarkTheme())
     val activity = LocalContext.current as ComponentActivity
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -67,6 +72,24 @@ fun StockDashboardApp(
             onThemeModeSelected = themeViewModel::select,
             showGold = showGold,
             onShowGoldChange = themeViewModel::setShowGold,
+            floatRunning = floatRunning,
+            onFloatToggle = {
+                if (!floatRunning) {
+                    if (Settings.canDrawOverlays(activity)) {
+                        FloatWindowService.start(activity)
+                    } else {
+                        Toast.makeText(activity, "请开启悬浮窗权限后再试", Toast.LENGTH_SHORT).show()
+                        activity.startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${activity.packageName}")
+                            )
+                        )
+                    }
+                } else {
+                    FloatWindowService.stop(activity)
+                }
+            },
             onRefresh = dashboardViewModel::refreshAll,
             onFundSelected = dashboardViewModel::selectFund,
             onBack = dashboardViewModel::closeDetail,

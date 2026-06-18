@@ -79,6 +79,8 @@ fun DashboardRoute(
     onThemeModeSelected: (ThemeMode) -> Unit,
     showGold: Boolean,
     onShowGoldChange: (Boolean) -> Unit,
+    floatRunning: Boolean,
+    onFloatToggle: () -> Unit,
     onRefresh: () -> Unit,
     onFundSelected: (Int) -> Unit,
     onBack: () -> Unit,
@@ -116,6 +118,8 @@ fun DashboardRoute(
             onThemeModeSelected = onThemeModeSelected,
             showGold = showGold,
             onShowGoldChange = onShowGoldChange,
+            floatRunning = floatRunning,
+            onFloatToggle = onFloatToggle,
             onRefresh = onRefresh,
             onFundSelected = onFundSelected
         )
@@ -135,6 +139,8 @@ private fun HomeScreen(
     onThemeModeSelected: (ThemeMode) -> Unit,
     showGold: Boolean,
     onShowGoldChange: (Boolean) -> Unit,
+    floatRunning: Boolean,
+    onFloatToggle: () -> Unit,
     onRefresh: () -> Unit,
     onFundSelected: (Int) -> Unit
 ) {
@@ -159,6 +165,8 @@ private fun HomeScreen(
                 themeMode = themeMode,
                 onThemeModeSelected = onThemeModeSelected,
                 onShowGoldChange = onShowGoldChange,
+                floatRunning = floatRunning,
+                onFloatToggle = onFloatToggle,
                 onRefresh = onRefresh
             )
         }
@@ -250,6 +258,8 @@ private fun HomeHeader(
     themeMode: ThemeMode,
     onThemeModeSelected: (ThemeMode) -> Unit,
     onShowGoldChange: (Boolean) -> Unit,
+    floatRunning: Boolean,
+    onFloatToggle: () -> Unit,
     onRefresh: () -> Unit
 ) {
     Column(
@@ -275,6 +285,8 @@ private fun HomeHeader(
                 onModeSelected = onThemeModeSelected,
                 showGold = showGold,
                 onShowGoldChange = onShowGoldChange,
+                floatRunning = floatRunning,
+                onFloatToggle = onFloatToggle,
                 tint = OnHero
             )
             IconButton(onClick = onRefresh) {
@@ -375,6 +387,8 @@ private fun SettingsMenu(
     onModeSelected: (ThemeMode) -> Unit,
     showGold: Boolean,
     onShowGoldChange: (Boolean) -> Unit,
+    floatRunning: Boolean,
+    onFloatToggle: () -> Unit,
     tint: Color = TextPrimary
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -417,6 +431,16 @@ private fun SettingsMenu(
                     Switch(checked = showGold, onCheckedChange = null)
                 },
                 onClick = { onShowGoldChange(!showGold) }
+            )
+            DropdownMenuItem(
+                text = { Text("悬浮窗") },
+                trailingIcon = {
+                    Switch(checked = floatRunning, onCheckedChange = null)
+                },
+                onClick = {
+                    expanded = false
+                    onFloatToggle()
+                }
             )
         }
     }
