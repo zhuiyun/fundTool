@@ -75,7 +75,7 @@ class DashboardService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val p = readPrefs()
-        if (!p.showFloat && !p.showNotification) {
+        if (!p.showFloat && !p.showNotification && !p.showLiveUpdate) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -160,7 +160,7 @@ class DashboardService : Service() {
                             detachFloat()
                             _floatRunning.value = false
                             _floatClosed.tryEmit(Unit)
-                            if (!readPrefs().showNotification) stopSelf()
+                            val rp = readPrefs(); if (!rp.showNotification && !rp.showLiveUpdate) stopSelf()
                         } else {
                             packageManager.getLaunchIntentForPackage(packageName)?.apply {
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -236,7 +236,7 @@ class DashboardService : Service() {
 
     private fun buildNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
         val notification = buildLegacyNotification(p, dashboard, gold)
-        if (Build.VERSION.SDK_INT >= 36 && p.showNotification) {
+        if (Build.VERSION.SDK_INT >= 36 && p.showLiveUpdate) {
             notification.extras.putBoolean("android.requestPromotedOngoing", true)
         }
         return notification
@@ -254,7 +254,8 @@ class DashboardService : Service() {
             .setOnlyAlertOnce(true)
             .setContentIntent(launchPi)
 
-        if (!p.showNotification) {
+        val showRich = p.showNotification || p.showLiveUpdate
+        if (!showRich) {
             return builder
                 .setContentTitle("基金估值")
                 .setContentText(if (p.showFloat) "悬浮窗运行中" else "运行中")
@@ -262,31 +263,43 @@ class DashboardService : Service() {
         }
 
         val nasdaq = dashboard?.let { findNasdaq(it) }
-        val lines = buildList {
-            if (p.showNasdaq && nasdaq != null)
-                add("纳斯达克  ${nasdaq.changePercent}")
-            if (p.showGold && gold != null)
-                add("现货黄金  ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
+
+        // Chip title: short summary shown in Live Update chip
+        val chipParts = buildList {
+            if (p.showNasdaq && nasdaq != null) add("纳 ${nasdaq.changePercent}")
+            if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
             if (p.showFunds && dashboard != null) {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
                 val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                val top = if (up >= down)
-                    dashboard.funds.maxByOrNull { it.estimatedImpact }
-                else
-                    dashboard.funds.minByOrNull { it.estimatedImpact }
-                val suffix = top?.let { "  ${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""
-                add("涨$up / 跌$down$suffix")
+                add("涨$up 跌$down")
             }
         }
+        val chipTitle = chipParts.joinToString("  ·  ").ifEmpty { "加载中..." }
 
-        val compact = lines.joinToString("  ·  ").ifEmpty { "加载中..." }
-        val expanded = lines.joinToString("\n") +
-                if (dashboard != null) "\n更新于 ${dashboard.timestamp}" else ""
+        // InboxStyle: each data item on its own line, no truncation
+        val style = NotificationCompat.InboxStyle()
+        if (p.showNasdaq && nasdaq != null) {
+            style.addLine("纳斯达克   ${nasdaq.changePercent}")
+        }
+        if (p.showGold && gold != null) {
+            style.addLine("现货黄金   ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
+        }
+        if (p.showFunds && dashboard != null) {
+            val up = dashboard.funds.count { it.estimatedImpact > 0 }
+            val down = dashboard.funds.count { it.estimatedImpact < 0 }
+            val top = if (up >= down)
+                dashboard.funds.maxByOrNull { it.estimatedImpact }
+            else
+                dashboard.funds.minByOrNull { it.estimatedImpact }
+            val topText = top?.let { "  ${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""
+            style.addLine("涨$up / 跌$down$topText")
+        }
+        if (dashboard != null) style.setSummaryText("更新于 ${dashboard.timestamp}")
 
         return builder
-            .setContentTitle("基金估值")
-            .setContentText(compact)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(expanded))
+            .setContentTitle(chipTitle)
+            .setSubText("基金估值")
+            .setStyle(style)
             .build()
     }
 
@@ -320,6 +333,7 @@ class DashboardService : Service() {
     private data class Prefs(
         val showFloat: Boolean,
         val showNotification: Boolean,
+        val showLiveUpdate: Boolean,
         val showNasdaq: Boolean,
         val showGold: Boolean,
         val showFunds: Boolean
@@ -330,6 +344,7 @@ class DashboardService : Service() {
         return Prefs(
             showFloat = sp.getBoolean("show_float", false),
             showNotification = sp.getBoolean("show_notification", false),
+            showLiveUpdate = sp.getBoolean("show_live_update", false),
             showNasdaq = sp.getBoolean("overlay_nasdaq", true),
             showGold = sp.getBoolean("overlay_gold", true),
             showFunds = sp.getBoolean("overlay_funds", true)

@@ -35,6 +35,7 @@ fun StockDashboardApp(
     val showGold = themeViewModel.showGold.collectAsStateWithLifecycle().value
     val showFloat = themeViewModel.showFloat.collectAsStateWithLifecycle().value
     val showNotification = themeViewModel.showNotification.collectAsStateWithLifecycle().value
+    val showLiveUpdate = themeViewModel.showLiveUpdate.collectAsStateWithLifecycle().value
     val floatRunning = DashboardService.floatRunning.collectAsStateWithLifecycle().value
     val overlayNasdaq = themeViewModel.overlayNasdaq.collectAsStateWithLifecycle().value
     val overlayGold = themeViewModel.overlayGold.collectAsStateWithLifecycle().value
@@ -49,6 +50,16 @@ fun StockDashboardApp(
     ) { granted ->
         if (granted) {
             themeViewModel.setShowNotification(true)
+        } else {
+            Toast.makeText(activity, "请开启通知权限后再试", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val liveUpdatePermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            themeViewModel.setShowLiveUpdate(true)
         } else {
             Toast.makeText(activity, "请开启通知权限后再试", Toast.LENGTH_SHORT).show()
         }
@@ -82,8 +93,8 @@ fun StockDashboardApp(
     }
 
     // Start/stop DashboardService when prefs change
-    LaunchedEffect(showFloat, showNotification) {
-        if (showFloat || showNotification) {
+    LaunchedEffect(showFloat, showNotification, showLiveUpdate) {
+        if (showFloat || showNotification || showLiveUpdate) {
             DashboardService.update(activity)
         } else {
             DashboardService.stop(activity)
@@ -92,7 +103,7 @@ fun StockDashboardApp(
 
     // Re-configure service when overlay content prefs change
     LaunchedEffect(overlayNasdaq, overlayGold, overlayFunds) {
-        if (showFloat || showNotification) DashboardService.update(activity)
+        if (showFloat || showNotification || showLiveUpdate) DashboardService.update(activity)
         FundWidget.requestUpdate(activity)
     }
 
@@ -165,6 +176,19 @@ fun StockDashboardApp(
             onOverlayGoldChange = themeViewModel::setOverlayGold,
             overlayFunds = overlayFunds,
             onOverlayFundsChange = themeViewModel::setOverlayFunds,
+            showLiveUpdate = showLiveUpdate,
+            onShowLiveUpdateChange = {
+                if (showLiveUpdate) {
+                    themeViewModel.setShowLiveUpdate(false)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
+                    liveUpdatePermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    themeViewModel.setShowLiveUpdate(true)
+                }
+            },
             onRefresh = dashboardViewModel::refreshAll,
             onFundSelected = dashboardViewModel::selectFund,
             onBack = dashboardViewModel::closeDetail,
