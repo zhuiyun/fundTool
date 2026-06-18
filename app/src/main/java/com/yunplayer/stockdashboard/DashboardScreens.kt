@@ -262,7 +262,7 @@ private fun HomeHeader(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "基金影响估算",
+                    "基金估值",
                     color = OnHero,
                     fontSize = 19.sp,
                     fontWeight = FontWeight.SemiBold
