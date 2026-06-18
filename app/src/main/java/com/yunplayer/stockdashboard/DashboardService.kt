@@ -302,13 +302,16 @@ class DashboardService : Service() {
         if (dashboard != null) inboxStyle.setSummaryText(dashboard.timestamp)
 
         if (p.showLiveUpdate) {
-            // Remove API-36 gate: reflection calls fail gracefully on lower APIs,
-            // so it's safe to attempt on any version OPPO ships Android 16 on.
+            // requestPromotedOngoing on builder BEFORE build (API 36 method via reflection)
             applyRequestPromotedOngoing(nativeBuilder)
-            val metricApplied = tryBuildWithMetricStyle(nativeBuilder, p, nasdaqEntries, dashboard, gold)
-            if (!metricApplied) nativeBuilder.setStyle(inboxStyle)
+
+            // Use InboxStyle — MetricStyle was never actually applied in the previously-working
+            // version (it always failed silently); InboxStyle + setSubText + post-build extras
+            // is the confirmed-working path on OPPO ColorOS.
+            nativeBuilder.setStyle(inboxStyle).setSubText("实时行情")
+
             val notif = nativeBuilder.build()
-            // Belt-and-suspenders: some OEMs also need this set post-build
+            // Set after build: this is the mechanism confirmed to trigger the chip on OPPO
             runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
             return notif
         }
