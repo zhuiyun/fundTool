@@ -371,8 +371,7 @@ class DashboardService : Service() {
             true
         } catch (_: Exception) {
             // OPPO only promotes chip for BigTextStyle; InboxStyle breaks chip display.
-            // Shared update time goes into setBigContentTitle so it appears in the title row.
-            // Gold+funds shown first (within OPPO's ~2-line visible limit); nasdaq below.
+            // Title row: nasdaq/nasdaq100 in blue. Body: gold price only, funds, update time.
             val COLOR_LABEL = 0xFF90CAF9.toInt()
             val COLOR_UP    = 0xFFEE6E70.toInt()
             val COLOR_DOWN  = 0xFF34C77E.toInt()
@@ -385,22 +384,33 @@ class DashboardService : Service() {
                 return this
             }
 
-            // Shared update time: prefer dashboard timestamp, fall back to gold's clock
             val updateTime = dashboard?.timestamp?.takeIf { it.isNotEmpty() }
                 ?: gold?.let { formatClockTime(it.updatedAtMillis).take(5) }
 
+            // Title row: nasdaq + nasdaq100 in blue (replaces bold contentTitle in expanded view)
+            val titleSb = SpannableStringBuilder()
+            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
+                val v = parsePercentText(e.changePercent)
+                titleSb.ac("纳斯达克 ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
+            }
+            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
+                val v = parsePercentText(e.changePercent)
+                if (titleSb.isNotEmpty()) titleSb.ac("    ", COLOR_LABEL)
+                titleSb.ac("纳100 ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
+            }
+            val bigContentTitle: CharSequence =
+                if (titleSb.isNotEmpty()) titleSb
+                else if (updateTime != null) "更新 $updateTime"
+                else " "
+
             val sb = SpannableStringBuilder()
-            // Gold first — no inline timestamp (shared time shown in title row)
+            // Gold: price only, no change amount
             if (p.showGold && gold != null) {
-                val c = gold.changeAmount
-                val absStr = String.format(java.util.Locale.US, "%.2f", if (c < 0) -c else c)
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.ac("现货黄金  ", COLOR_LABEL)
                   .ac(formatGoldPrice(gold.price), COLOR_LABEL)
-                  .ac("  ", COLOR_LABEL)
-                  .ac(if (c >= 0) "+$absStr" else "-$absStr", signedColor(c))
             }
-            // Funds second — no inline timestamp
+            // Funds
             if (p.showFunds && dashboard != null) {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
                 val down = dashboard.funds.count { it.estimatedImpact < 0 }
@@ -421,19 +431,12 @@ class DashboardService : Service() {
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.ac("基金  加载中...", COLOR_TIME)
             }
-            // Nasdaq below — already shown in chip pill, lower priority for expanded view
-            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
-                val v = parsePercentText(e.changePercent)
+            // Shared update time as final line
+            if (updateTime != null) {
                 if (sb.isNotEmpty()) sb.append("\n")
-                sb.ac("纳斯达克  ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
-            }
-            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
-                val v = parsePercentText(e.changePercent)
-                if (sb.isNotEmpty()) sb.append("\n")
-                sb.ac("纳斯达克100  ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
+                sb.ac("更新 $updateTime", COLOR_TIME)
             }
 
-            val bigContentTitle = if (updateTime != null) "更新 $updateTime" else " "
             val bigText: CharSequence = if (sb.isEmpty()) "加载中..." else sb
             val compactText = buildList {
                 if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳 ${it.changePercent}") }
