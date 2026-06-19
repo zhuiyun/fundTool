@@ -256,10 +256,27 @@ class DashboardService : Service() {
 
         if (p.showLiveUpdate && Build.VERSION.SDK_INT >= 36) {
             val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
-            // Use dedicated high-importance channel — OPPO ColorOS requires it for 流体云
+            // contentTitle is what OPPO ColorOS shows inside the 流体云 chip
+            val chipTitle = buildString {
+                if (p.showNasdaq && nasdaqEntries.isNotEmpty()) {
+                    append("纳${nasdaqEntries[0].changePercent}")
+                    if (nasdaqEntries.size > 1) append("/${nasdaqEntries[1].changePercent}")
+                }
+                if (p.showGold && gold != null) {
+                    if (isNotEmpty()) append("  ")
+                    append("金${formatGoldPrice(gold.price)}")
+                }
+                if (p.showFunds && dashboard != null) {
+                    val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                    val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                    if (isNotEmpty()) append("  ")
+                    append("涨$up 跌$down")
+                }
+                if (isEmpty()) append("基金估值")
+            }
             val builder = Notification.Builder(this, CHANNEL_LIVE_ID)
                 .setSmallIcon(R.drawable.ic_stat_notify)
-                .setContentTitle("基金估值")
+                .setContentTitle(chipTitle)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(launchPi)
@@ -280,7 +297,6 @@ class DashboardService : Service() {
             .build()
     }
 
-    /** Returns a Notification — always non-null. Shows diagnostic info in subtext. */
     private fun buildMetricNotification(
         builder: Notification.Builder,
         p: Prefs,
@@ -288,20 +304,11 @@ class DashboardService : Service() {
         dashboard: Dashboard?,
         gold: GoldQuote?
     ): Notification {
-        // Enumerate Builder methods related to promotion/live to diagnose OPPO API
-        val promoMethods = builder.javaClass.methods
-            .filter { m -> m.name.lowercase().let { n ->
-                "promot" in n || "live" in n || "ongoing" in n || "chip" in n || "push" in n
-            }}
-            .map { it.name }.distinct().joinToString(" ")
-        val diagPrefix = if (promoMethods.isNotEmpty()) promoMethods.take(120) else "no-promo-methods"
-
-        // Try setRequestPromotedOngoing on Builder
-        val rpBuilder = runCatching {
+        // Confirmed available on OPPO ColorOS 16 via reflection; promotes notification to chip
+        runCatching {
             builder.javaClass.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
                 .invoke(builder, true)
         }
-        val rpStatus = if (rpBuilder.isSuccess) "B✓" else "B✗"
 
         // Try MetricStyle for stock Android 16 (will fail with ClassNotFoundException on OPPO)
         val metricStyleApplied = try {
@@ -342,18 +349,13 @@ class DashboardService : Service() {
                 }
             }
             builder.setStyle(style as Notification.Style)
-                .setSubText("MS✓ $rpStatus")
             true
         } catch (_: Exception) {
-            // MetricStyle not available — do NOT set any Style, just bare Builder.
-            // InboxStyle/BigTextStyle can suppress the chip; bare Builder preserves it.
-            val notifInners = runCatching {
-                Notification::class.java.declaredClasses
-                    .map { it.simpleName }.joinToString(",")
-            }.getOrDefault("?")
+            // MetricStyle not on this device — chip displays contentTitle (set by caller).
+            // No Style set; bare Builder preserves the chip promotion.
             val compactParts = buildList {
                 if (p.showNasdaq && nasdaqEntries.isNotEmpty())
-                    add("纳 " + nasdaqEntries.joinToString("/") { it.changePercent })
+                    add("纳 " + nasdaqEntries.joinToString(" / ") { it.changePercent })
                 if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
                 if (p.showFunds && dashboard != null) {
                     val up = dashboard.funds.count { it.estimatedImpact > 0 }
@@ -361,9 +363,7 @@ class DashboardService : Service() {
                     add("涨$up 跌$down")
                 }
             }
-            builder.setContentText(
-                "$rpStatus ${compactParts.joinToString("·").ifEmpty { "..." }} NI:${notifInners.take(60)}"
-            )
+            builder.setContentText(compactParts.joinToString("  ·  ").ifEmpty { "加载中..." })
             false
         }
 
