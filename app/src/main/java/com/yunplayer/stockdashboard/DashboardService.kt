@@ -396,25 +396,29 @@ class DashboardService : Service() {
             // MetricStyle not on this device — use BigTextStyle with +/- signs.
             // If nasdaq is already shown in the chip title (skipNasdaq=true), skip it here.
             val sb = SpannableStringBuilder()
-            fun appendSigned(text: String, value: Double) {
-                val color = if (value > 0) 0xFFEE6E70.toInt() else 0xFF34C77E.toInt()
-                val start = sb.length
-                sb.append(text)
-                if (value != 0.0) sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            val COLOR_LABEL = 0xFFCCCCCC.toInt()   // light gray — category names & neutral values
+            val COLOR_UP    = 0xFFEE6E70.toInt()   // red  — positive / 涨
+            val COLOR_DOWN  = 0xFF34C77E.toInt()   // green — negative / 跌
+            val COLOR_TIME  = 0xFF999999.toInt()   // dark gray — timestamps & "加载中"
+            fun appendC(text: String, color: Int) {
+                val s = sb.length; sb.append(text)
+                sb.setSpan(ForegroundColorSpan(color), s, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
+            fun appendSigned(text: String, value: Double) =
+                appendC(text, if (value > 0) COLOR_UP else if (value < 0) COLOR_DOWN else COLOR_LABEL)
             fun signedPct(raw: String, v: Double): String {
                 val abs = raw.trimStart('+', '-')
                 return if (v >= 0) "+$abs" else "-$abs"
             }
             if (!skipNasdaq && p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
                 if (sb.isNotEmpty()) sb.append("\n")
-                sb.append("纳斯达克  ")
+                appendC("纳斯达克  ", COLOR_LABEL)
                 val v = parsePercentText(e.changePercent)
                 appendSigned(signedPct(e.changePercent, v), v)
             }
             if (!skipNasdaq && p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
                 if (sb.isNotEmpty()) sb.append("\n")
-                sb.append("纳斯达克100  ")
+                appendC("纳斯达克100  ", COLOR_LABEL)
                 val v = parsePercentText(e.changePercent)
                 appendSigned(signedPct(e.changePercent, v), v)
             }
@@ -422,9 +426,11 @@ class DashboardService : Service() {
                 val c = gold.changeAmount
                 val absStr = String.format(java.util.Locale.US, "%.2f", if (c < 0) -c else c)
                 if (sb.isNotEmpty()) sb.append("\n")
-                sb.append("现货黄金  ${formatGoldPrice(gold.price)}  ")
+                appendC("现货黄金  ", COLOR_LABEL)
+                appendC(formatGoldPrice(gold.price), COLOR_LABEL)
+                appendC("  ", COLOR_LABEL)
                 appendSigned(if (c >= 0) "+$absStr" else "-$absStr", c)
-                sb.append("  更新 ${formatClockTime(gold.updatedAtMillis).take(5)}")
+                appendC("  更新 ${formatClockTime(gold.updatedAtMillis).take(5)}", COLOR_TIME)
             }
             if (p.showFunds && dashboard != null) {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
@@ -432,20 +438,20 @@ class DashboardService : Service() {
                 val top = if (up >= down) dashboard.funds.maxByOrNull { it.estimatedImpact }
                           else dashboard.funds.minByOrNull { it.estimatedImpact }
                 if (sb.isNotEmpty()) sb.append("\n")
-                sb.append("基金  ")
+                appendC("基金  ", COLOR_LABEL)
                 appendSigned("涨$up", up.toDouble())
-                sb.append(" / ")
+                appendC(" / ", COLOR_LABEL)
                 appendSigned("跌$down", if (down > 0) -1.0 else 0.0)
                 if (top != null) {
                     val v = top.estimatedImpact
                     val pctAbs = formatPercent(if (v < 0) -v else v)
-                    sb.append("  ${top.name.take(5)} ")
+                    appendC("  ${top.name.take(5)} ", COLOR_LABEL)
                     appendSigned(if (v >= 0) "+$pctAbs" else "-$pctAbs", v)
                 }
-                if (dashboard.timestamp.isNotEmpty()) sb.append("  更新 ${dashboard.timestamp}")
+                if (dashboard.timestamp.isNotEmpty()) appendC("  更新 ${dashboard.timestamp}", COLOR_TIME)
             } else if (p.showFunds) {
                 if (sb.isNotEmpty()) sb.append("\n")
-                sb.append("基金  加载中...")
+                appendC("基金  加载中...", COLOR_TIME)
             }
             val bigText: CharSequence = if (sb.isEmpty()) "加载中..." else sb
             val compactText = buildList {
