@@ -462,10 +462,7 @@ class DashboardService : Service() {
             false
         }
 
-        val notif = builder
-            .setWhen(System.currentTimeMillis())
-            .setShowWhen(false)
-            .build()
+        val notif = builder.build()
         // Post-build extras as final fallback
         runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
         return notif
