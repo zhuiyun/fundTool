@@ -13,6 +13,8 @@ interface ThemePreferenceStore {
     fun saveShowNotification(show: Boolean) {}
     fun loadOverlayNasdaq(): Boolean = true
     fun saveOverlayNasdaq(show: Boolean) {}
+    fun loadOverlayNasdaq100(): Boolean = true
+    fun saveOverlayNasdaq100(show: Boolean) {}
     fun loadOverlayGold(): Boolean = true
     fun saveOverlayGold(show: Boolean) {}
     fun loadOverlayFunds(): Boolean = true
@@ -43,6 +45,8 @@ class SharedPreferencesThemePreferenceStore(context: Context) : ThemePreferenceS
 
     override fun loadOverlayNasdaq(): Boolean = preferences.getBoolean(KEY_OVERLAY_NASDAQ, true)
     override fun saveOverlayNasdaq(show: Boolean) { preferences.edit().putBoolean(KEY_OVERLAY_NASDAQ, show).apply() }
+    override fun loadOverlayNasdaq100(): Boolean = preferences.getBoolean(KEY_OVERLAY_NASDAQ_100, true)
+    override fun saveOverlayNasdaq100(show: Boolean) { preferences.edit().putBoolean(KEY_OVERLAY_NASDAQ_100, show).apply() }
 
     override fun loadOverlayGold(): Boolean = preferences.getBoolean(KEY_OVERLAY_GOLD, true)
     override fun saveOverlayGold(show: Boolean) { preferences.edit().putBoolean(KEY_OVERLAY_GOLD, show).apply() }
@@ -61,6 +65,7 @@ class SharedPreferencesThemePreferenceStore(context: Context) : ThemePreferenceS
         const val KEY_SHOW_NOTIFICATION = "show_notification"
         const val KEY_SHOW_LIVE_UPDATE = "show_live_update"
         const val KEY_OVERLAY_NASDAQ = "overlay_nasdaq"
+        const val KEY_OVERLAY_NASDAQ_100 = "overlay_nasdaq_100"
         const val KEY_OVERLAY_GOLD = "overlay_gold"
         const val KEY_OVERLAY_FUNDS = "overlay_funds"
     }

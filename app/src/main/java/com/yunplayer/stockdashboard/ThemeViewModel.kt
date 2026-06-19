@@ -23,6 +23,9 @@ class ThemeViewModel(
     private val mutableOverlayNasdaq = MutableStateFlow(preferenceStore.loadOverlayNasdaq())
     val overlayNasdaq: StateFlow<Boolean> = mutableOverlayNasdaq.asStateFlow()
 
+    private val mutableOverlayNasdaq100 = MutableStateFlow(preferenceStore.loadOverlayNasdaq100())
+    val overlayNasdaq100: StateFlow<Boolean> = mutableOverlayNasdaq100.asStateFlow()
+
     private val mutableOverlayGold = MutableStateFlow(preferenceStore.loadOverlayGold())
     val overlayGold: StateFlow<Boolean> = mutableOverlayGold.asStateFlow()
 
@@ -55,6 +58,11 @@ class ThemeViewModel(
     fun setOverlayNasdaq(show: Boolean) {
         mutableOverlayNasdaq.value = show
         preferenceStore.saveOverlayNasdaq(show)
+    }
+
+    fun setOverlayNasdaq100(show: Boolean) {
+        mutableOverlayNasdaq100.value = show
+        preferenceStore.saveOverlayNasdaq100(show)
     }
 
     fun setOverlayGold(show: Boolean) {

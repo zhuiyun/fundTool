@@ -39,6 +39,7 @@ fun StockDashboardApp(
     val showLiveUpdate = themeViewModel.showLiveUpdate.collectAsStateWithLifecycle().value
     val floatRunning = DashboardService.floatRunning.collectAsStateWithLifecycle().value
     val overlayNasdaq = themeViewModel.overlayNasdaq.collectAsStateWithLifecycle().value
+    val overlayNasdaq100 = themeViewModel.overlayNasdaq100.collectAsStateWithLifecycle().value
     val overlayGold = themeViewModel.overlayGold.collectAsStateWithLifecycle().value
     val overlayFunds = themeViewModel.overlayFunds.collectAsStateWithLifecycle().value
     val darkTheme = themeMode.resolveDark(isSystemInDarkTheme())
@@ -113,7 +114,7 @@ fun StockDashboardApp(
     }
 
     // Re-configure service when overlay content prefs change
-    LaunchedEffect(overlayNasdaq, overlayGold, overlayFunds) {
+    LaunchedEffect(overlayNasdaq, overlayNasdaq100, overlayGold, overlayFunds) {
         if (showFloat || showNotification || showLiveUpdate) DashboardService.update(activity)
         FundWidget.requestUpdate(activity)
     }
@@ -183,6 +184,8 @@ fun StockDashboardApp(
             },
             overlayNasdaq = overlayNasdaq,
             onOverlayNasdaqChange = themeViewModel::setOverlayNasdaq,
+            overlayNasdaq100 = overlayNasdaq100,
+            onOverlayNasdaq100Change = themeViewModel::setOverlayNasdaq100,
             overlayGold = overlayGold,
             onOverlayGoldChange = themeViewModel::setOverlayGold,
             overlayFunds = overlayFunds,

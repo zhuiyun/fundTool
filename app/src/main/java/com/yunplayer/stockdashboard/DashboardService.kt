@@ -204,7 +204,7 @@ class DashboardService : Service() {
         }
 
         val nasdaq100Row = v.findViewById<View>(R.id.float_nasdaq100_row)
-        if (p.showNasdaq && n100 != null) {
+        if (p.showNasdaq100 && n100 != null) {
             nasdaq100Row.visibility = View.VISIBLE
             val tv100 = v.findViewById<TextView>(R.id.float_nasdaq100_value)
             tv100.text = n100.changePercent
@@ -254,24 +254,28 @@ class DashboardService : Service() {
 
         if (p.showLiveUpdate && Build.VERSION.SDK_INT >= 36) {
             val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
-            // contentTitle appears inside the 流体云 chip — keep compact, no ¥ symbol
-            val chipTitle = buildString {
-                if (p.showNasdaq && nasdaqEntries.isNotEmpty()) {
-                    append("纳${nasdaqEntries[0].changePercent}")
-                    if (nasdaqEntries.size > 1) append("/${nasdaqEntries[1].changePercent}")
-                }
-                if (p.showGold && gold != null) {
-                    if (isNotEmpty()) append(" ")
-                    append("金${gold.price.toInt()}")
-                }
+            // chip right side: nasdaq only (compact)
+            val nasdaqParts = buildList {
+                if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳${it.changePercent}") }
+                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add(it.changePercent) }
+            }
+            val chipTitle = nasdaqParts.joinToString("/").ifEmpty {
+                if (p.showGold && gold != null) "金${gold.price.toInt()}"
+                else if (p.showFunds && dashboard != null) {
+                    val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                    val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                    "涨${up}跌${down}"
+                } else "行情"
+            }
+            // chip left/subtitle: secondary metrics (gold + funds)
+            val chipSub = buildList {
+                if (p.showGold && gold != null) add("金${gold.price.toInt()}")
                 if (p.showFunds && dashboard != null) {
                     val up = dashboard.funds.count { it.estimatedImpact > 0 }
                     val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                    if (isNotEmpty()) append(" ")
-                    append("涨${up}跌${down}")
+                    add("涨${up}跌${down}")
                 }
-                if (isEmpty()) append("行情")
-            }
+            }.joinToString(" ")
             // Low-importance channel: chip is promoted via setRequestPromotedOngoing,
             // so shade notification stays minimal/silent
             val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
@@ -280,6 +284,7 @@ class DashboardService : Service() {
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(launchPi)
+            if (chipSub.isNotEmpty()) builder.setSubText(chipSub)
             return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
         }
 
@@ -331,8 +336,11 @@ class DashboardService : Service() {
                     mbCls.getMethod("build").invoke(mb)
                 }.getOrNull()
                 val items = buildList {
-                    if (p.showNasdaq) nasdaqEntries.forEach { e ->
-                        buildMetric(e.name.take(5), e.changePercent)?.let { add(it) }
+                    nasdaqEntries.getOrNull(0)?.takeIf { p.showNasdaq }?.let { e ->
+                        buildMetric("纳斯达克", e.changePercent)?.let { add(it) }
+                    }
+                    nasdaqEntries.getOrNull(1)?.takeIf { p.showNasdaq100 }?.let { e ->
+                        buildMetric("纳100", e.changePercent)?.let { add(it) }
                     }
                     if (p.showGold && gold != null)
                         buildMetric("黄金", formatGoldPrice(gold.price))?.let { add(it) }
@@ -354,8 +362,13 @@ class DashboardService : Service() {
             // MetricStyle not on this device — chip shows contentTitle (set by caller).
             // BigTextStyle gives richer expanded layout; if it suppresses chip, remove it.
             val bigText = buildString {
-                if (p.showNasdaq && nasdaqEntries.isNotEmpty())
-                    appendLine("纳斯达克  " + nasdaqEntries.joinToString("  /  ") { it.changePercent })
+                // nasdaq rows (separate composite vs 100)
+                if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let {
+                    appendLine("纳斯达克  ${it.changePercent}")
+                }
+                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let {
+                    appendLine("纳斯达克100  ${it.changePercent}")
+                }
                 if (p.showGold && gold != null)
                     appendLine("现货黄金  ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
                 if (p.showFunds && dashboard != null) {
@@ -369,8 +382,8 @@ class DashboardService : Service() {
                 if (dashboard != null) append(dashboard.timestamp)
             }.trimEnd()
             val compactText = buildList {
-                if (p.showNasdaq && nasdaqEntries.isNotEmpty())
-                    add("纳 " + nasdaqEntries.joinToString("/") { it.changePercent })
+                if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳 ${it.changePercent}") }
+                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add(it.changePercent) }
                 if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
                 if (p.showFunds && dashboard != null) {
                     val up = dashboard.funds.count { it.estimatedImpact > 0 }
@@ -395,8 +408,11 @@ class DashboardService : Service() {
         val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
 
         val compactParts = buildList {
-            if (p.showNasdaq && nasdaqEntries.isNotEmpty())
-                add("纳 " + nasdaqEntries.joinToString(" / ") { it.changePercent })
+            val nasdaqParts2 = buildList {
+                if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳 ${it.changePercent}") }
+                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add(it.changePercent) }
+            }
+            if (nasdaqParts2.isNotEmpty()) add(nasdaqParts2.joinToString("/"))
             if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
             if (p.showFunds && dashboard != null) {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
@@ -406,7 +422,8 @@ class DashboardService : Service() {
         }
 
         val inboxStyle = Notification.InboxStyle()
-        if (p.showNasdaq) nasdaqEntries.forEach { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
+        if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
+        if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
         if (p.showGold && gold != null)
             inboxStyle.addLine("现货黄金   ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
         if (p.showFunds && dashboard != null) {
@@ -467,6 +484,7 @@ class DashboardService : Service() {
         val showNotification: Boolean,
         val showLiveUpdate: Boolean,
         val showNasdaq: Boolean,
+        val showNasdaq100: Boolean,
         val showGold: Boolean,
         val showFunds: Boolean
     )
@@ -478,6 +496,7 @@ class DashboardService : Service() {
             showNotification = sp.getBoolean("show_notification", false),
             showLiveUpdate = sp.getBoolean("show_live_update", false),
             showNasdaq = sp.getBoolean("overlay_nasdaq", true),
+            showNasdaq100 = sp.getBoolean("overlay_nasdaq_100", true),
             showGold = sp.getBoolean("overlay_gold", true),
             showFunds = sp.getBoolean("overlay_funds", true)
         )
