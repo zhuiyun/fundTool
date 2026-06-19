@@ -10,7 +10,6 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
-import android.os.Bundle
 import android.os.IBinder
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -18,6 +17,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import androidx.annotation.RequiresApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -247,30 +247,63 @@ class DashboardService : Service() {
             .notify(NOTIF_ID, buildNotification(p, lastDashboard, lastGold))
     }
 
-    private fun buildNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
-        val launchPi = PendingIntent.getActivity(
-            this, 0,
-            packageManager.getLaunchIntentForPackage(packageName),
-            PendingIntent.FLAG_IMMUTABLE
-        )
+    private fun buildNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification =
+        when {
+            p.showLiveUpdate && Build.VERSION.SDK_INT >= 36 -> buildLiveUpdateNotification(p, dashboard, gold)
+            p.showNotification || p.showLiveUpdate -> buildInboxNotification(p, dashboard, gold)
+            else -> buildSilentNotification(p)
+        }
 
-        val showRich = p.showNotification || p.showLiveUpdate
+    @RequiresApi(36)
+    private fun buildLiveUpdateNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
+        val launchPi = PendingIntent.getActivity(this, 0,
+            packageManager.getLaunchIntentForPackage(packageName), PendingIntent.FLAG_IMMUTABLE)
         val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
 
-        val nativeBuilder = Notification.Builder(this, CHANNEL_ID)
+        val metrics = buildList<Notification.Metric> {
+            if (p.showNasdaq) {
+                nasdaqEntries.forEach { entry ->
+                    add(Notification.Metric.Builder()
+                        .setLabel(entry.name.take(5))
+                        .setValue(Notification.Metric.FixedText(entry.changePercent))
+                        .build())
+                }
+            }
+            if (p.showGold && gold != null) {
+                add(Notification.Metric.Builder()
+                    .setLabel("黄金")
+                    .setValue(Notification.Metric.FixedText(formatGoldPrice(gold.price)))
+                    .build())
+            }
+            if (p.showFunds && dashboard != null) {
+                val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                add(Notification.Metric.Builder()
+                    .setLabel("基金")
+                    .setValue(Notification.Metric.FixedText("涨$up / 跌$down"))
+                    .build())
+            }
+        }
+
+        // setRequestPromotedOngoing on MetricStyle — this is the path confirmed to work in v1.4
+        val style = Notification.MetricStyle().setRequestPromotedOngoing(true)
+        if (metrics.isNotEmpty()) style.setMetrics(*metrics.toTypedArray())
+
+        return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
+            .setContentTitle("基金估值")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(launchPi)
-            .setContentTitle("基金估值")
+            .setStyle(style)
+            .build()
+    }
 
-        if (!showRich) {
-            return nativeBuilder
-                .setContentText(if (p.showFloat) "悬浮窗运行中" else "运行中")
-                .build()
-        }
+    private fun buildInboxNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
+        val launchPi = PendingIntent.getActivity(this, 0,
+            packageManager.getLaunchIntentForPackage(packageName), PendingIntent.FLAG_IMMUTABLE)
+        val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
 
-        // Compact one-liner shown in collapsed notification view
         val compactParts = buildList {
             if (p.showNasdaq && nasdaqEntries.isNotEmpty())
                 add("纳 " + nasdaqEntries.joinToString(" / ") { it.changePercent })
@@ -281,15 +314,11 @@ class DashboardService : Service() {
                 add("涨$up 跌$down")
             }
         }
-        nativeBuilder.setContentText(compactParts.joinToString("  ·  ").ifEmpty { "加载中..." })
 
         val inboxStyle = Notification.InboxStyle()
-        if (p.showNasdaq) {
-            nasdaqEntries.forEach { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
-        }
-        if (p.showGold && gold != null) {
+        if (p.showNasdaq) nasdaqEntries.forEach { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
+        if (p.showGold && gold != null)
             inboxStyle.addLine("现货黄金   ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
-        }
         if (p.showFunds && dashboard != null) {
             val up = dashboard.funds.count { it.estimatedImpact > 0 }
             val down = dashboard.funds.count { it.estimatedImpact < 0 }
@@ -298,101 +327,30 @@ class DashboardService : Service() {
             val topText = top?.let { "  ${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""
             inboxStyle.addLine("涨$up / 跌$down$topText")
         }
-        // Use raw timestamp as summary — avoids "更新于 更新于 …" double prefix on ColorOS
         if (dashboard != null) inboxStyle.setSummaryText(dashboard.timestamp)
 
-        if (p.showLiveUpdate) {
-            // requestPromotedOngoing on builder BEFORE build (API 36 method via reflection)
-            val promotedApplied = applyRequestPromotedOngoing(nativeBuilder)
-
-            // subText shows diagnostic info so the user can see API level + whether reflection succeeded
-            val diagText = "实时行情 API${Build.VERSION.SDK_INT}${if (promotedApplied) "✓" else "✗"}"
-            nativeBuilder.setStyle(inboxStyle).setSubText(diagText)
-
-            val notif = nativeBuilder.build()
-            // Set after build: belt-and-suspenders for OPPO ColorOS
-            runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
-            return notif
-        }
-
-        return nativeBuilder.setStyle(inboxStyle).build()
+        return Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_notify)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(launchPi)
+            .setContentTitle("基金估值")
+            .setContentText(compactParts.joinToString("  ·  ").ifEmpty { "加载中..." })
+            .setStyle(inboxStyle)
+            .build()
     }
 
-    /**
-     * Calls Notification.Builder.setRequestPromotedOngoing(true) via reflection — must happen
-     * BEFORE build() for the Live Update chip to appear on OPPO ColorOS and other Android 16 OEMs.
-     */
-    private fun applyRequestPromotedOngoing(builder: Notification.Builder): Boolean {
-        try {
-            builder.javaClass
-                .getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
-                .invoke(builder, true)
-            return true
-        } catch (_: Exception) { }
-        // Fallback: inject via addExtras() before build()
-        try {
-            val b = Bundle()
-            b.putBoolean("android.requestPromotedOngoing", true)
-            builder.javaClass
-                .getMethod("addExtras", Bundle::class.java)
-                .invoke(builder, b)
-            return true
-        } catch (_: Exception) { }
-        return false
-    }
-
-    /** Returns true if MetricStyle was applied successfully. */
-    private fun tryBuildWithMetricStyle(
-        builder: Notification.Builder,
-        p: Prefs,
-        nasdaqEntries: List<IndexImpact>,
-        dashboard: Dashboard?,
-        gold: GoldQuote?
-    ): Boolean {
-        return try {
-            val msCls = Class.forName("android.app.Notification\$MetricStyle")
-            val ms = msCls.getDeclaredConstructor().newInstance() as Notification.Style
-            // setRequestPromotedOngoing is on Notification.Builder, NOT on MetricStyle —
-            // it is handled by applyRequestPromotedOngoing() called before build().
-
-            try {
-                val mCls = Class.forName("android.app.Notification\$Metric")
-                val mbCls = Class.forName("android.app.Notification\$Metric\$Builder")
-                val ftCls = Class.forName("android.app.Notification\$Metric\$FixedText")
-                val mvCls = Class.forName("android.app.Notification\$Metric\$MetricValue")
-
-                fun metric(label: String, value: String): Any {
-                    val mb = mbCls.getDeclaredConstructor().newInstance()
-                    mbCls.getMethod("setLabel", CharSequence::class.java).invoke(mb, label)
-                    val ft = ftCls.getDeclaredConstructor(CharSequence::class.java).newInstance(value)
-                    mbCls.getMethod("setValue", mvCls).invoke(mb, ft)
-                    return mbCls.getMethod("build").invoke(mb)!!
-                }
-
-                val items = buildList {
-                    if (p.showNasdaq && nasdaqEntries.isNotEmpty()) {
-                        add(metric("纳斯达克", nasdaqEntries[0].changePercent))
-                        nasdaqEntries.getOrNull(1)?.let { add(metric("纳100", it.changePercent)) }
-                    }
-                    if (p.showGold && gold != null) add(metric("黄金", formatGoldPrice(gold.price)))
-                    if (p.showFunds && dashboard != null) {
-                        val up = dashboard.funds.count { it.estimatedImpact > 0 }
-                        val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                        add(metric("涨跌", "涨$up 跌$down"))
-                    }
-                }
-                if (items.isNotEmpty()) {
-                    val arr = java.lang.reflect.Array.newInstance(mCls, items.size)
-                    items.forEachIndexed { i, m -> java.lang.reflect.Array.set(arr, i, m) }
-                    msCls.getMethod("setMetrics", arr.javaClass).invoke(ms, arr)
-                }
-            } catch (_: Exception) { /* metrics optional — chip still appears via requestPromotedOngoing */ }
-
-            builder.setStyle(ms)
-            true
-        } catch (_: Exception) {
-            false
-        }
+    private fun buildSilentNotification(p: Prefs): Notification {
+        val launchPi = PendingIntent.getActivity(this, 0,
+            packageManager.getLaunchIntentForPackage(packageName), PendingIntent.FLAG_IMMUTABLE)
+        return Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_notify)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(launchPi)
+            .setContentTitle("基金估值")
+            .setContentText(if (p.showFloat) "悬浮窗运行中" else "运行中")
+            .build()
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
