@@ -43,6 +43,7 @@ class DashboardService : Service() {
 
     private var lastDashboard: Dashboard? = null
     private var lastGold: GoldQuote? = null
+    private var lastPollAtMillis: Long = 0L
 
     companion object {
         private val _floatRunning = MutableStateFlow(false)
@@ -102,6 +103,7 @@ class DashboardService : Service() {
                 }.getOrNull()
                 if (dashboard != null) lastDashboard = dashboard
                 if (gold != null) lastGold = gold
+                lastPollAtMillis = System.currentTimeMillis()
 
                 val p = readPrefs()
                 applyFloatState(p)
@@ -385,14 +387,18 @@ class DashboardService : Service() {
             }
 
             // 北京时间 16:00~04:59 = 美股盘前/盘中（含夏冬令时），显示基金时间；其余显示黄金时间
+            // 兜底：接口失败时用轮询时间，确保时间始终跟随循环更新
             val bjHour = java.time.LocalTime.now(java.time.ZoneId.of("Asia/Shanghai")).hour
             val isUsMarketHours = bjHour >= 16 || bjHour < 5
+            val pollFallback = if (lastPollAtMillis > 0) formatClockTime(lastPollAtMillis).take(5) else null
             val updateTime = if (isUsMarketHours) {
                 dashboard?.timestamp?.takeIf { it.isNotEmpty() }
                     ?: gold?.let { formatClockTime(it.updatedAtMillis).take(5) }
+                    ?: pollFallback
             } else {
                 gold?.let { formatClockTime(it.updatedAtMillis).take(5) }
                     ?: dashboard?.timestamp?.takeIf { it.isNotEmpty() }
+                    ?: pollFallback
             }
 
             // Title row: nasdaq + nasdaq100 in blue — short labels to fit on one line
