@@ -9,6 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
@@ -267,24 +270,12 @@ class DashboardService : Service() {
                     "涨${up}跌${down}"
                 } else "行情"
             }
-            // chip left/subtitle: secondary metrics (gold + funds)
-            val chipSub = buildList {
-                if (p.showGold && gold != null) add("金${gold.price.toInt()}")
-                if (p.showFunds && dashboard != null) {
-                    val up = dashboard.funds.count { it.estimatedImpact > 0 }
-                    val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                    add("涨${up}跌${down}")
-                }
-            }.joinToString(" ")
-            // Low-importance channel: chip is promoted via setRequestPromotedOngoing,
-            // so shade notification stays minimal/silent
             val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
                 .setSmallIcon(R.drawable.ic_stat_notify)
                 .setContentTitle(chipTitle)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(launchPi)
-            if (chipSub.isNotEmpty()) builder.setSubText(chipSub)
             return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
         }
 
@@ -360,27 +351,54 @@ class DashboardService : Service() {
             true
         } catch (_: Exception) {
             // MetricStyle not on this device — chip shows contentTitle (set by caller).
-            // BigTextStyle gives richer expanded layout; if it suppresses chip, remove it.
-            val bigText = buildString {
-                // nasdaq rows (separate composite vs 100)
-                if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let {
-                    appendLine("纳斯达克  ${it.changePercent}")
+            // BigText shows complementary data; nasdaq is skipped when already in contentTitle.
+            val nasdaqInTitle = (p.showNasdaq && nasdaqEntries.getOrNull(0) != null) ||
+                                (p.showNasdaq100 && nasdaqEntries.getOrNull(1) != null)
+            val sb = SpannableStringBuilder()
+            fun appendColored(text: String, value: Double) {
+                if (value == 0.0) { sb.append(text); return }
+                val color = if (value > 0) 0xFFEE6E70.toInt() else 0xFF34C77E.toInt()
+                val start = sb.length
+                sb.append(text)
+                sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            if (!nasdaqInTitle) {
+                if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
+                    if (sb.isNotEmpty()) sb.append("\n")
+                    sb.append("纳斯达克  ")
+                    appendColored(e.changePercent, parsePercentText(e.changePercent))
                 }
-                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let {
-                    appendLine("纳斯达克100  ${it.changePercent}")
+                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
+                    if (sb.isNotEmpty()) sb.append("\n")
+                    sb.append("纳斯达克100  ")
+                    appendColored(e.changePercent, parsePercentText(e.changePercent))
                 }
-                if (p.showGold && gold != null)
-                    appendLine("现货黄金  ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
-                if (p.showFunds && dashboard != null) {
-                    val up = dashboard.funds.count { it.estimatedImpact > 0 }
-                    val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                    val top = if (up >= down) dashboard.funds.maxByOrNull { it.estimatedImpact }
-                              else dashboard.funds.minByOrNull { it.estimatedImpact }
-                    val topStr = top?.let { "  ${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""
-                    appendLine("基金  涨$up / 跌$down$topStr")
+            }
+            if (p.showGold && gold != null) {
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.append("现货黄金  ${formatGoldPrice(gold.price)}  ")
+                appendColored(formatSignedNumber(gold.changeAmount), gold.changeAmount)
+            }
+            if (p.showFunds && dashboard != null) {
+                val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                val top = if (up >= down) dashboard.funds.maxByOrNull { it.estimatedImpact }
+                          else dashboard.funds.minByOrNull { it.estimatedImpact }
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.append("基金  ")
+                appendColored("涨$up", up.toDouble())
+                sb.append(" / ")
+                appendColored("跌$down", if (down > 0) -1.0 else 0.0)
+                if (top != null) {
+                    sb.append("  ${top.name.take(5)} ")
+                    appendColored(formatSignedPercent(top.estimatedImpact), top.estimatedImpact)
                 }
-                if (dashboard != null) append(dashboard.timestamp)
-            }.trimEnd()
+            }
+            if (dashboard != null) {
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.append(dashboard.timestamp)
+            }
+            val bigText: CharSequence = if (sb.isEmpty()) "加载中..." else sb
             val compactText = buildList {
                 if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳 ${it.changePercent}") }
                 if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add(it.changePercent) }
