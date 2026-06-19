@@ -391,8 +391,16 @@ class DashboardService : Service() {
                 return this
             }
 
-            val updateTime = dashboard?.timestamp?.takeIf { it.isNotEmpty() }
-                ?: gold?.let { formatClockTime(it.updatedAtMillis).take(5) }
+            // 北京时间 16:00~04:59 = 美股盘前/盘中（含夏冬令时），显示基金时间；其余显示黄金时间
+            val bjHour = java.time.LocalTime.now(java.time.ZoneId.of("Asia/Shanghai")).hour
+            val isUsMarketHours = bjHour >= 16 || bjHour < 5
+            val updateTime = if (isUsMarketHours) {
+                dashboard?.timestamp?.takeIf { it.isNotEmpty() }
+                    ?: gold?.let { formatClockTime(it.updatedAtMillis).take(5) }
+            } else {
+                gold?.let { formatClockTime(it.updatedAtMillis).take(5) }
+                    ?: dashboard?.timestamp?.takeIf { it.isNotEmpty() }
+            }
 
             // Title row: nasdaq + nasdaq100 in blue — short labels to fit on one line
             val titleSb = SpannableStringBuilder()
