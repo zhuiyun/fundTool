@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Icon
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.text.SpannableStringBuilder
@@ -306,6 +307,7 @@ class DashboardService : Service() {
         }
         val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
+            .setLargeIcon(Icon.createWithResource(this, R.mipmap.ic_launcher_round))
             .setContentTitle(chipTitle)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
