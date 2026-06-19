@@ -7,8 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.text.SpannableStringBuilder
@@ -307,12 +305,7 @@ class DashboardService : Service() {
             else -> "行情"
         }
         val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
-            .setSmallIcon(R.drawable.ic_stat_notify)
-            .setLargeIcon(run {
-                val d = getDrawable(R.mipmap.ic_launcher_round)!!
-                val bmp = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
-                d.setBounds(0, 0, 128, 128); d.draw(Canvas(bmp)); bmp
-            })
+            .setSmallIcon(R.mipmap.ic_launcher_round)
             .setContentTitle(chipTitle)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
