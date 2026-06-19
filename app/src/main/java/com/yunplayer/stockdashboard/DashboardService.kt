@@ -371,8 +371,8 @@ class DashboardService : Service() {
             true
         } catch (_: Exception) {
             // OPPO only promotes chip for BigTextStyle; InboxStyle breaks chip display.
-            // Show gold+funds first so they appear in OPPO's visible line limit (~2 lines).
-            // Nasdaq is already in the chip pill title, so it's deprioritised here.
+            // Shared update time goes into setBigContentTitle so it appears in the title row.
+            // Gold+funds shown first (within OPPO's ~2-line visible limit); nasdaq below.
             val COLOR_LABEL = 0xFF90CAF9.toInt()
             val COLOR_UP    = 0xFFEE6E70.toInt()
             val COLOR_DOWN  = 0xFF34C77E.toInt()
@@ -385,8 +385,12 @@ class DashboardService : Service() {
                 return this
             }
 
+            // Shared update time: prefer dashboard timestamp, fall back to gold's clock
+            val updateTime = dashboard?.timestamp?.takeIf { it.isNotEmpty() }
+                ?: gold?.let { formatClockTime(it.updatedAtMillis).take(5) }
+
             val sb = SpannableStringBuilder()
-            // Gold first — visible within OPPO's 2-line truncation window
+            // Gold first — no inline timestamp (shared time shown in title row)
             if (p.showGold && gold != null) {
                 val c = gold.changeAmount
                 val absStr = String.format(java.util.Locale.US, "%.2f", if (c < 0) -c else c)
@@ -395,9 +399,8 @@ class DashboardService : Service() {
                   .ac(formatGoldPrice(gold.price), COLOR_LABEL)
                   .ac("  ", COLOR_LABEL)
                   .ac(if (c >= 0) "+$absStr" else "-$absStr", signedColor(c))
-                  .ac("  更新 ${formatClockTime(gold.updatedAtMillis).take(5)}", COLOR_TIME)
             }
-            // Funds second
+            // Funds second — no inline timestamp
             if (p.showFunds && dashboard != null) {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
                 val down = dashboard.funds.count { it.estimatedImpact < 0 }
@@ -414,7 +417,6 @@ class DashboardService : Service() {
                     sb.ac("  ${top.name.take(5)} ", COLOR_LABEL)
                       .ac(if (v >= 0) "+$pctAbs" else "-$pctAbs", signedColor(v))
                 }
-                if (dashboard.timestamp.isNotEmpty()) sb.ac("  更新 ${dashboard.timestamp}", COLOR_TIME)
             } else if (p.showFunds) {
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.ac("基金  加载中...", COLOR_TIME)
@@ -431,6 +433,7 @@ class DashboardService : Service() {
                 sb.ac("纳斯达克100  ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
             }
 
+            val bigContentTitle = if (updateTime != null) "更新 $updateTime" else " "
             val bigText: CharSequence = if (sb.isEmpty()) "加载中..." else sb
             val compactText = buildList {
                 if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳 ${it.changePercent}") }
@@ -443,7 +446,7 @@ class DashboardService : Service() {
                 }
             }.joinToString("  ·  ").ifEmpty { "加载中..." }
             builder
-                .setStyle(Notification.BigTextStyle().setBigContentTitle(" ").bigText(bigText))
+                .setStyle(Notification.BigTextStyle().setBigContentTitle(bigContentTitle).bigText(bigText))
                 .setContentText(compactText)
             false
         }
