@@ -58,6 +58,7 @@ class DashboardService : Service() {
         const val CHANNEL_LIVE_ID = "dashboard_live_update"  // legacy, kept for deletion
         const val CHANNEL_CHIP_ID = "dashboard_chip"
         private const val NOTIF_ID = 1001
+        private const val NOTIF_ID_CHIP = 1002
 
         fun update(ctx: Context) {
             ctx.startForegroundService(Intent(ctx, DashboardService::class.java))
@@ -73,7 +74,7 @@ class DashboardService : Service() {
         _serviceRunning.value = true
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification(readPrefs(), null, null))
+        startForeground(NOTIF_ID, buildServiceNotification())
         startPolling()
     }
 
@@ -247,50 +248,66 @@ class DashboardService : Service() {
     // ── Notification ──────────────────────────────────────────────────────────
 
     private fun refreshNotification(p: Prefs) {
-        getSystemService(NotificationManager::class.java)
-            .notify(NOTIF_ID, buildNotification(p, lastDashboard, lastGold))
+        val nm = getSystemService(NotificationManager::class.java)
+        // Chip runs as a separate notification so the foreground service notification
+        // stays minimal and is less prominent in the control center.
+        if (p.showLiveUpdate && Build.VERSION.SDK_INT >= 36) {
+            nm.notify(NOTIF_ID, buildServiceNotification())
+            nm.notify(NOTIF_ID_CHIP, buildChipNotification(p, lastDashboard, lastGold))
+        } else {
+            nm.cancel(NOTIF_ID_CHIP)
+            val launchPi = PendingIntent.getActivity(
+                this, 0, packageManager.getLaunchIntentForPackage(packageName),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+            nm.notify(NOTIF_ID, when {
+                p.showNotification || p.showLiveUpdate ->
+                    buildInboxNotification(launchPi, p, lastDashboard, lastGold)
+                else -> buildServiceNotification()
+            })
+        }
     }
 
-    private fun buildNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
-        val launchPi = PendingIntent.getActivity(this, 0,
-            packageManager.getLaunchIntentForPackage(packageName), PendingIntent.FLAG_IMMUTABLE)
-
-        if (p.showLiveUpdate && Build.VERSION.SDK_INT >= 36) {
-            val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
-            // chip right side: nasdaq only (compact)
-            val nasdaqParts = buildList {
-                if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳${it.changePercent}") }
-                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add(it.changePercent) }
-            }
-            val chipTitle = nasdaqParts.joinToString("/").ifEmpty {
-                if (p.showGold && gold != null) "金${gold.price.toInt()}"
-                else if (p.showFunds && dashboard != null) {
-                    val up = dashboard.funds.count { it.estimatedImpact > 0 }
-                    val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                    "涨${up}跌${down}"
-                } else "行情"
-            }
-            val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
-                .setSmallIcon(R.drawable.ic_stat_notify)
-                .setContentTitle(chipTitle)
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setContentIntent(launchPi)
-            return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
-        }
-
-        if (p.showNotification || p.showLiveUpdate) {
-            return buildInboxNotification(launchPi, p, dashboard, gold)
-        }
-
+    private fun buildServiceNotification(): Notification {
+        val launchPi = PendingIntent.getActivity(
+            this, 0, packageManager.getLaunchIntentForPackage(packageName),
+            PendingIntent.FLAG_IMMUTABLE
+        )
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
+            .setContentTitle("基金估值")
+            .setContentText("服务运行中")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(launchPi)
-            .setContentTitle("基金估值")
-            .setContentText(if (p.showFloat) "悬浮窗运行中" else "运行中")
             .build()
+    }
+
+    private fun buildChipNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
+        val launchPi = PendingIntent.getActivity(
+            this, 0, packageManager.getLaunchIntentForPackage(packageName),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
+        val nasdaqParts = buildList {
+            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳${it.changePercent}") }
+            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add(it.changePercent) }
+        }
+        val chipTitle = nasdaqParts.joinToString("/").ifEmpty {
+            if (p.showGold && gold != null) "金${gold.price.toInt()}"
+            else if (p.showFunds && dashboard != null) {
+                val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                "涨${up}跌${down}"
+            } else "行情"
+        }
+        val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
+            .setSmallIcon(R.drawable.ic_stat_notify)
+            .setContentTitle(chipTitle)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(launchPi)
+        return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
     }
 
     private fun buildMetricNotification(
@@ -488,6 +505,7 @@ class DashboardService : Service() {
     override fun onDestroy() {
         scope.cancel()
         detachFloat()
+        getSystemService(NotificationManager::class.java).cancel(NOTIF_ID_CHIP)
         _serviceRunning.value = false
         _floatRunning.value = false
         super.onDestroy()
