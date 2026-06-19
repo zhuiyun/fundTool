@@ -248,24 +248,23 @@ class DashboardService : Service() {
     // ── Notification ──────────────────────────────────────────────────────────
 
     private fun refreshNotification(p: Prefs) {
-        val nm = getSystemService(NotificationManager::class.java)
-        // Chip runs as a separate notification so the foreground service notification
-        // stays minimal and is less prominent in the control center.
-        if (p.showLiveUpdate && Build.VERSION.SDK_INT >= 36) {
-            nm.notify(NOTIF_ID, buildServiceNotification())
-            nm.notify(NOTIF_ID_CHIP, buildChipNotification(p, lastDashboard, lastGold))
-        } else {
-            nm.cancel(NOTIF_ID_CHIP)
-            val launchPi = PendingIntent.getActivity(
-                this, 0, packageManager.getLaunchIntentForPackage(packageName),
-                PendingIntent.FLAG_IMMUTABLE
-            )
-            nm.notify(NOTIF_ID, when {
-                p.showNotification || p.showLiveUpdate ->
-                    buildInboxNotification(launchPi, p, lastDashboard, lastGold)
-                else -> buildServiceNotification()
-            })
+        // Cancel stale chip notification from previous split approach
+        getSystemService(NotificationManager::class.java).cancel(NOTIF_ID_CHIP)
+        // OPPO only refreshes the chip pill for the notification bound to startForeground().
+        // Keep chip as NOTIF_ID (foreground) so every startForeground() call triggers a
+        // chip re-render on OPPO ColorOS.
+        val launchPi = PendingIntent.getActivity(
+            this, 0, packageManager.getLaunchIntentForPackage(packageName),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val notif = when {
+            p.showLiveUpdate && Build.VERSION.SDK_INT >= 36 ->
+                buildChipNotification(p, lastDashboard, lastGold)
+            p.showNotification || p.showLiveUpdate ->
+                buildInboxNotification(launchPi, p, lastDashboard, lastGold)
+            else -> buildServiceNotification()
         }
+        startForeground(NOTIF_ID, notif)
     }
 
     private fun buildServiceNotification(): Notification {
