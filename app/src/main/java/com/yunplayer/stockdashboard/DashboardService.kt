@@ -291,7 +291,7 @@ class DashboardService : Service() {
         val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
         val nasdaqParts = buildList {
             if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳${it.changePercent}") }
-            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add(it.changePercent) }
+            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add("百${it.changePercent}") }
         }
         val nasdaqInTitle = nasdaqParts.isNotEmpty()
         val chipTitle = nasdaqParts.joinToString("/").ifEmpty {
@@ -302,32 +302,31 @@ class DashboardService : Service() {
                 "涨${up}跌${down}"
             } else "行情"
         }
-        // Chip secondary text: complementary data not already in chipTitle,
-        // with red/green color spans — OPPO may show this on the left side of the pill.
-        val chipSb = SpannableStringBuilder()
-        fun chipColor(text: String, value: Double) {
-            if (value == 0.0) { chipSb.append(text); return }
-            val color = if (value > 0) 0xFFEE6E70.toInt() else 0xFF34C77E.toInt()
-            val start = chipSb.length
-            chipSb.append(text)
-            chipSb.setSpan(ForegroundColorSpan(color), start, chipSb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        }
+        // Secondary content for chip left side: try setShortCriticalText (Android 16 API)
+        // then fall back to setContentText; only include data NOT already in chipTitle.
         val goldInTitle = !nasdaqInTitle && p.showGold && gold != null
         val fundsInTitle = !nasdaqInTitle && !goldInTitle && p.showFunds && dashboard != null
-        if (p.showGold && gold != null && !goldInTitle) chipColor("金${gold.price.toInt()}", gold.changeAmount)
-        if (p.showFunds && dashboard != null && !fundsInTitle) {
-            val up = dashboard.funds.count { it.estimatedImpact > 0 }
-            val down = dashboard.funds.count { it.estimatedImpact < 0 }
-            if (chipSb.isNotEmpty()) chipSb.append("  ")
-            chipColor("涨${up}跌${down}", if (up >= down) 1.0 else -1.0)
-        }
+        val chipSecondary = buildList {
+            if (p.showGold && gold != null && !goldInTitle) add("金${gold.price.toInt()}")
+            if (p.showFunds && dashboard != null && !fundsInTitle) {
+                val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                add("涨${up}跌${down}")
+            }
+        }.joinToString("  ")
         val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
             .setContentTitle(chipTitle)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(launchPi)
-        if (chipSb.isNotEmpty()) builder.setContentText(chipSb)
+        if (chipSecondary.isNotEmpty()) {
+            runCatching {
+                builder.javaClass.getMethod("setShortCriticalText", CharSequence::class.java)
+                    .invoke(builder, chipSecondary)
+            }
+            builder.setContentText(chipSecondary)
+        }
         return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
     }
 
@@ -388,34 +387,34 @@ class DashboardService : Service() {
             builder.setStyle(style as Notification.Style)
             true
         } catch (_: Exception) {
-            // MetricStyle not on this device — chip shows contentTitle (set by caller).
-            // BigText shows complementary data; nasdaq is skipped when already in contentTitle.
-            val nasdaqInTitle = (p.showNasdaq && nasdaqEntries.getOrNull(0) != null) ||
-                                (p.showNasdaq100 && nasdaqEntries.getOrNull(1) != null)
+            // MetricStyle not on this device — use BigTextStyle with ▲/▼ direction symbols.
+            // BigText always shows full detail for all enabled data (no deduplication).
             val sb = SpannableStringBuilder()
-            fun appendColored(text: String, value: Double) {
-                if (value == 0.0) { sb.append(text); return }
+            fun sign(v: Double) = if (v >= 0) "▲" else "▼"
+            fun appendSigned(text: String, value: Double) {
                 val color = if (value > 0) 0xFFEE6E70.toInt() else 0xFF34C77E.toInt()
                 val start = sb.length
                 sb.append(text)
-                sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                if (value != 0.0) sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
-            if (!nasdaqInTitle) {
-                if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
-                    if (sb.isNotEmpty()) sb.append("\n")
-                    sb.append("纳斯达克  ")
-                    appendColored(e.changePercent, parsePercentText(e.changePercent))
-                }
-                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
-                    if (sb.isNotEmpty()) sb.append("\n")
-                    sb.append("纳斯达克100  ")
-                    appendColored(e.changePercent, parsePercentText(e.changePercent))
-                }
+            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.append("纳斯达克  ")
+                val v = parsePercentText(e.changePercent)
+                appendSigned("${sign(v)}${e.changePercent}", v)
+            }
+            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.append("纳斯达克100  ")
+                val v = parsePercentText(e.changePercent)
+                appendSigned("${sign(v)}${e.changePercent}", v)
             }
             if (p.showGold && gold != null) {
+                val c = gold.changeAmount
+                val absStr = String.format(java.util.Locale.US, "%.2f", if (c < 0) -c else c)
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.append("现货黄金  ${formatGoldPrice(gold.price)}  ")
-                appendColored(formatSignedNumber(gold.changeAmount), gold.changeAmount)
+                appendSigned("${sign(c)}${absStr}", c)
                 sb.append("  ${formatClockTime(gold.updatedAtMillis).take(5)}")
             }
             if (p.showFunds && dashboard != null) {
@@ -425,19 +424,21 @@ class DashboardService : Service() {
                           else dashboard.funds.minByOrNull { it.estimatedImpact }
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.append("基金  ")
-                appendColored("涨$up", up.toDouble())
+                appendSigned("涨$up", up.toDouble())
                 sb.append(" / ")
-                appendColored("跌$down", if (down > 0) -1.0 else 0.0)
+                appendSigned("跌$down", if (down > 0) -1.0 else 0.0)
                 if (top != null) {
+                    val v = top.estimatedImpact
+                    val pctAbs = formatPercent(if (v < 0) -v else v)
                     sb.append("  ${top.name.take(5)} ")
-                    appendColored(formatSignedPercent(top.estimatedImpact), top.estimatedImpact)
+                    appendSigned("${sign(v)}${pctAbs}", v)
                 }
                 sb.append("  ${dashboard.timestamp}")
             }
             val bigText: CharSequence = if (sb.isEmpty()) "加载中..." else sb
             val compactText = buildList {
                 if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳 ${it.changePercent}") }
-                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add(it.changePercent) }
+                if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add("百 ${it.changePercent}") }
                 if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
                 if (p.showFunds && dashboard != null) {
                     val up = dashboard.funds.count { it.estimatedImpact > 0 }
