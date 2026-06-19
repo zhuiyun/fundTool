@@ -293,6 +293,7 @@ class DashboardService : Service() {
             if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳${it.changePercent}") }
             if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add(it.changePercent) }
         }
+        val nasdaqInTitle = nasdaqParts.isNotEmpty()
         val chipTitle = nasdaqParts.joinToString("/").ifEmpty {
             if (p.showGold && gold != null) "金${gold.price.toInt()}"
             else if (p.showFunds && dashboard != null) {
@@ -301,12 +302,32 @@ class DashboardService : Service() {
                 "涨${up}跌${down}"
             } else "行情"
         }
+        // Chip secondary text: complementary data not already in chipTitle,
+        // with red/green color spans — OPPO may show this on the left side of the pill.
+        val chipSb = SpannableStringBuilder()
+        fun chipColor(text: String, value: Double) {
+            if (value == 0.0) { chipSb.append(text); return }
+            val color = if (value > 0) 0xFFEE6E70.toInt() else 0xFF34C77E.toInt()
+            val start = chipSb.length
+            chipSb.append(text)
+            chipSb.setSpan(ForegroundColorSpan(color), start, chipSb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        val goldInTitle = !nasdaqInTitle && p.showGold && gold != null
+        val fundsInTitle = !nasdaqInTitle && !goldInTitle && p.showFunds && dashboard != null
+        if (p.showGold && gold != null && !goldInTitle) chipColor("金${gold.price.toInt()}", gold.changeAmount)
+        if (p.showFunds && dashboard != null && !fundsInTitle) {
+            val up = dashboard.funds.count { it.estimatedImpact > 0 }
+            val down = dashboard.funds.count { it.estimatedImpact < 0 }
+            if (chipSb.isNotEmpty()) chipSb.append("  ")
+            chipColor("涨${up}跌${down}", if (up >= down) 1.0 else -1.0)
+        }
         val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
             .setContentTitle(chipTitle)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(launchPi)
+        if (chipSb.isNotEmpty()) builder.setContentText(chipSb)
         return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
     }
 
@@ -395,6 +416,7 @@ class DashboardService : Service() {
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.append("现货黄金  ${formatGoldPrice(gold.price)}  ")
                 appendColored(formatSignedNumber(gold.changeAmount), gold.changeAmount)
+                sb.append("  ${formatClockTime(gold.updatedAtMillis).take(5)}")
             }
             if (p.showFunds && dashboard != null) {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
@@ -410,10 +432,7 @@ class DashboardService : Service() {
                     sb.append("  ${top.name.take(5)} ")
                     appendColored(formatSignedPercent(top.estimatedImpact), top.estimatedImpact)
                 }
-            }
-            if (dashboard != null) {
-                if (sb.isNotEmpty()) sb.append("\n")
-                sb.append(dashboard.timestamp)
+                sb.append("  ${dashboard.timestamp}")
             }
             val bigText: CharSequence = if (sb.isEmpty()) "加载中..." else sb
             val compactText = buildList {
