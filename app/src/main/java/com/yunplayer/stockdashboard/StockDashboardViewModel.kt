@@ -186,4 +186,19 @@ class StockDashboardViewModel(
     }
 }
 
-private fun Throwable.userMessage(): String = message?.takeIf { it.isNotBlank() } ?: "加载失败，请重试"
+private fun Throwable.userMessage(): String {
+    val raw = message?.takeIf { it.isNotBlank() } ?: return "加载失败，请重试"
+    return when {
+        raw.contains("JsonReader") || raw.contains("malformed") || raw.contains("JSON", ignoreCase = true) ->
+            "数据解析失败，请重试"
+        raw.contains("timeout", ignoreCase = true) || raw.contains("SocketTimeout") ->
+            "网络超时，请重试"
+        raw.contains("UnknownHost") || raw.contains("Unable to resolve") || raw.contains("No address") ->
+            "网络连接失败，请检查网络"
+        raw.contains("鉴权") || raw.contains("401") || raw.contains("403") ->
+            "鉴权失败，请稍后重试"
+        raw.contains("服务器繁忙") || raw.contains("50") ->
+            "服务器繁忙，请稍后重试"
+        else -> "暂时无法加载，请重试"
+    }
+}
