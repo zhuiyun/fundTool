@@ -356,7 +356,6 @@ class DashboardService : Service() {
                 .build()
         }
     }
-    }
 
     private fun buildInboxNotification(launchPi: PendingIntent, p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
         val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
