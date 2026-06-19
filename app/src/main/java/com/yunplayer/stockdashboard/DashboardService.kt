@@ -370,8 +370,9 @@ class DashboardService : Service() {
             builder.setStyle(style as Notification.Style)
             true
         } catch (_: Exception) {
-            // MetricStyle unavailable — InboxStyle shows more rows than BigTextStyle on OPPO.
-            // Each enabled item gets its own addLine() with color spans.
+            // OPPO only promotes chip for BigTextStyle; InboxStyle breaks chip display.
+            // Show gold+funds first so they appear in OPPO's visible line limit (~2 lines).
+            // Nasdaq is already in the chip pill title, so it's deprioritised here.
             val COLOR_LABEL = 0xFF90CAF9.toInt()
             val COLOR_UP    = 0xFFEE6E70.toInt()
             val COLOR_DOWN  = 0xFF34C77E.toInt()
@@ -384,52 +385,53 @@ class DashboardService : Service() {
                 return this
             }
 
-            val style = Notification.InboxStyle().setBigContentTitle(" ")
-
-            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
-                val v = parsePercentText(e.changePercent)
-                style.addLine(SpannableStringBuilder()
-                    .ac("纳斯达克  ", COLOR_LABEL)
-                    .ac(signedPct(e.changePercent, v), signedColor(v)))
-            }
-            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
-                val v = parsePercentText(e.changePercent)
-                style.addLine(SpannableStringBuilder()
-                    .ac("纳斯达克100  ", COLOR_LABEL)
-                    .ac(signedPct(e.changePercent, v), signedColor(v)))
-            }
+            val sb = SpannableStringBuilder()
+            // Gold first — visible within OPPO's 2-line truncation window
             if (p.showGold && gold != null) {
                 val c = gold.changeAmount
                 val absStr = String.format(java.util.Locale.US, "%.2f", if (c < 0) -c else c)
-                style.addLine(SpannableStringBuilder()
-                    .ac("现货黄金  ", COLOR_LABEL)
-                    .ac(formatGoldPrice(gold.price), COLOR_LABEL)
-                    .ac("  ", COLOR_LABEL)
-                    .ac(if (c >= 0) "+$absStr" else "-$absStr", signedColor(c))
-                    .ac("  更新 ${formatClockTime(gold.updatedAtMillis).take(5)}", COLOR_TIME))
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.ac("现货黄金  ", COLOR_LABEL)
+                  .ac(formatGoldPrice(gold.price), COLOR_LABEL)
+                  .ac("  ", COLOR_LABEL)
+                  .ac(if (c >= 0) "+$absStr" else "-$absStr", signedColor(c))
+                  .ac("  更新 ${formatClockTime(gold.updatedAtMillis).take(5)}", COLOR_TIME)
             }
+            // Funds second
             if (p.showFunds && dashboard != null) {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
                 val down = dashboard.funds.count { it.estimatedImpact < 0 }
                 val top = if (up >= down) dashboard.funds.maxByOrNull { it.estimatedImpact }
                           else dashboard.funds.minByOrNull { it.estimatedImpact }
-                val fl = SpannableStringBuilder()
-                    .ac("基金  ", COLOR_LABEL)
-                    .ac("涨$up", COLOR_UP)
-                    .ac(" / ", COLOR_LABEL)
-                    .ac("跌$down", COLOR_DOWN)
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.ac("基金  ", COLOR_LABEL)
+                  .ac("涨$up", COLOR_UP)
+                  .ac(" / ", COLOR_LABEL)
+                  .ac("跌$down", COLOR_DOWN)
                 if (top != null) {
                     val v = top.estimatedImpact
                     val pctAbs = formatPercent(if (v < 0) -v else v)
-                    fl.ac("  ${top.name.take(5)} ", COLOR_LABEL)
+                    sb.ac("  ${top.name.take(5)} ", COLOR_LABEL)
                       .ac(if (v >= 0) "+$pctAbs" else "-$pctAbs", signedColor(v))
                 }
-                if (dashboard.timestamp.isNotEmpty()) fl.ac("  更新 ${dashboard.timestamp}", COLOR_TIME)
-                style.addLine(fl)
+                if (dashboard.timestamp.isNotEmpty()) sb.ac("  更新 ${dashboard.timestamp}", COLOR_TIME)
             } else if (p.showFunds) {
-                style.addLine(SpannableStringBuilder().ac("基金  加载中...", COLOR_TIME))
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.ac("基金  加载中...", COLOR_TIME)
+            }
+            // Nasdaq below — already shown in chip pill, lower priority for expanded view
+            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
+                val v = parsePercentText(e.changePercent)
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.ac("纳斯达克  ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
+            }
+            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
+                val v = parsePercentText(e.changePercent)
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.ac("纳斯达克100  ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
             }
 
+            val bigText: CharSequence = if (sb.isEmpty()) "加载中..." else sb
             val compactText = buildList {
                 if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳 ${it.changePercent}") }
                 if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add("百 ${it.changePercent}") }
@@ -441,7 +443,7 @@ class DashboardService : Service() {
                 }
             }.joinToString("  ·  ").ifEmpty { "加载中..." }
             builder
-                .setStyle(style)
+                .setStyle(Notification.BigTextStyle().setBigContentTitle(" ").bigText(bigText))
                 .setContentText(compactText)
             false
         }
