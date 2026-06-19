@@ -11,8 +11,8 @@ android {
         applicationId = "com.yunplayer.stockdashboard"
         minSdk = 26
         targetSdk = 36
-        versionCode = 27
-        versionName = "3.6"
+        versionCode = 28
+        versionName = "3.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

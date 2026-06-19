@@ -248,23 +248,21 @@ class DashboardService : Service() {
     // ── Notification ──────────────────────────────────────────────────────────
 
     private fun refreshNotification(p: Prefs) {
-        // Cancel stale chip notification from previous split approach
-        getSystemService(NotificationManager::class.java).cancel(NOTIF_ID_CHIP)
-        // OPPO only refreshes the chip pill for the notification bound to startForeground().
-        // Keep chip as NOTIF_ID (foreground) so every startForeground() call triggers a
-        // chip re-render on OPPO ColorOS.
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.cancel(NOTIF_ID_CHIP)
         val launchPi = PendingIntent.getActivity(
             this, 0, packageManager.getLaunchIntentForPackage(packageName),
             PendingIntent.FLAG_IMMUTABLE
         )
         val notif = when {
-            p.showLiveUpdate && Build.VERSION.SDK_INT >= 36 ->
-                buildChipNotification(p, lastDashboard, lastGold)
-            p.showNotification || p.showLiveUpdate ->
-                buildInboxNotification(launchPi, p, lastDashboard, lastGold)
+            p.showLiveUpdate -> buildChipNotification(p, lastDashboard, lastGold)
+            p.showNotification -> buildInboxNotification(launchPi, p, lastDashboard, lastGold)
             else -> buildServiceNotification()
         }
         startForeground(NOTIF_ID, notif)
+        // OPPO ColorOS may only re-render the chip pill on a NotificationManager.notify()
+        // event rather than startForeground(), so post via both paths on every refresh.
+        nm.notify(NOTIF_ID, notif)
     }
 
     private fun buildServiceNotification(): Notification {
@@ -426,7 +424,7 @@ class DashboardService : Service() {
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.append("现货黄金  ${formatGoldPrice(gold.price)}  ")
                 appendSigned(if (c >= 0) "+$absStr" else "-$absStr", c)
-                sb.append("  ${formatClockTime(gold.updatedAtMillis).take(5)}")
+                sb.append("  更新 ${formatClockTime(gold.updatedAtMillis).take(5)}")
             }
             if (p.showFunds && dashboard != null) {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
@@ -444,7 +442,10 @@ class DashboardService : Service() {
                     sb.append("  ${top.name.take(5)} ")
                     appendSigned(if (v >= 0) "+$pctAbs" else "-$pctAbs", v)
                 }
-                if (dashboard.timestamp.isNotEmpty()) sb.append("  ${dashboard.timestamp}")
+                if (dashboard.timestamp.isNotEmpty()) sb.append("  更新 ${dashboard.timestamp}")
+            } else if (p.showFunds) {
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.append("基金  加载中...")
             }
             val bigText: CharSequence = if (sb.isEmpty()) "加载中..." else sb
             val compactText = buildList {
