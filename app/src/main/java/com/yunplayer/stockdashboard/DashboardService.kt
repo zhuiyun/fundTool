@@ -52,6 +52,10 @@ class DashboardService : Service() {
         val floatClosed: SharedFlow<Unit> = _floatClosed.asSharedFlow()
 
         const val CHANNEL_ID = "dashboard_service"
+        // Separate high-importance channel for Live Updates — OPPO ColorOS requires DEFAULT+
+        // importance for the 流体云 chip to appear. Can't change existing channel importance,
+        // so a new channel ID is used.
+        const val CHANNEL_LIVE_ID = "dashboard_live_update"
         private const val NOTIF_ID = 1001
 
         fun update(ctx: Context) {
@@ -252,15 +256,15 @@ class DashboardService : Service() {
 
         if (p.showLiveUpdate && Build.VERSION.SDK_INT >= 36) {
             val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
-            val builder = Notification.Builder(this, CHANNEL_ID)
+            // Use dedicated high-importance channel — OPPO ColorOS requires it for 流体云
+            val builder = Notification.Builder(this, CHANNEL_LIVE_ID)
                 .setSmallIcon(R.drawable.ic_stat_notify)
                 .setContentTitle("基金估值")
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(launchPi)
-            if (applyMetricStyle(builder, p, nasdaqEntries, dashboard, gold)) {
-                return builder.build()
-            }
+            buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
+                ?.let { return it }
         }
 
         if (p.showNotification || p.showLiveUpdate) {
@@ -277,34 +281,35 @@ class DashboardService : Service() {
             .build()
     }
 
-    /**
-     * Creates MetricStyle via reflection and calls setRequestPromotedOngoing on the STYLE instance
-     * (as v1.4 did — MetricStyle extends Notification.Style which has this method).
-     * Previous broken versions incorrectly called it on the Builder instead.
-     */
-    private fun applyMetricStyle(
+    /** Returns a built Notification with MetricStyle + requestPromotedOngoing, or null if unsupported. */
+    private fun buildMetricNotification(
         builder: Notification.Builder,
         p: Prefs,
         nasdaqEntries: List<IndexImpact>,
         dashboard: Dashboard?,
         gold: GoldQuote?
-    ): Boolean {
+    ): Notification? {
         return try {
             val msCls = Class.forName("android.app.Notification\$MetricStyle")
             val style = msCls.getDeclaredConstructor().newInstance()
 
-            // Key: call setRequestPromotedOngoing on the Style object, not on Builder
+            // Call setRequestPromotedOngoing on the Style instance (as v1.4 did via direct API)
             runCatching {
                 msCls.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
                     .invoke(style, true)
             }
+            // Belt-and-suspenders: also call it on the Builder before build()
+            runCatching {
+                builder.javaClass.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
+                    .invoke(builder, true)
+            }
 
             // Add metrics (best-effort; chip appears even if this fails)
             runCatching {
-                val mCls   = Class.forName("android.app.Notification\$Metric")
-                val mbCls  = Class.forName("android.app.Notification\$Metric\$Builder")
-                val ftCls  = Class.forName("android.app.Notification\$Metric\$FixedText")
-                val mvCls  = Class.forName("android.app.Notification\$Metric\$MetricValue")
+                val mCls  = Class.forName("android.app.Notification\$Metric")
+                val mbCls = Class.forName("android.app.Notification\$Metric\$Builder")
+                val ftCls = Class.forName("android.app.Notification\$Metric\$FixedText")
+                val mvCls = Class.forName("android.app.Notification\$Metric\$MetricValue")
 
                 fun buildMetric(label: String, value: String): Any? = runCatching {
                     val mb = mbCls.getDeclaredConstructor().newInstance()
@@ -335,9 +340,12 @@ class DashboardService : Service() {
             }
 
             builder.setStyle(style as Notification.Style)
-            true
+            val notif = builder.build()
+            // Post-build extra as final belt-and-suspenders for OPPO ColorOS
+            runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
+            notif
         } catch (_: Exception) {
-            false
+            null
         }
     }
 
@@ -434,8 +442,20 @@ class DashboardService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val ch = NotificationChannel(CHANNEL_ID, "基金估值", NotificationManager.IMPORTANCE_LOW)
-            .apply { description = "悬浮窗与常驻通知" }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "基金估值", NotificationManager.IMPORTANCE_LOW)
+                .apply { description = "悬浮窗与常驻通知" }
+        )
+        // HIGH importance required for OPPO ColorOS 流体云 chip to appear
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_LIVE_ID, "流体云实时行情", NotificationManager.IMPORTANCE_HIGH)
+                .apply {
+                    description = "流体云实时行情"
+                    setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+        )
     }
 }
