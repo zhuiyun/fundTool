@@ -52,10 +52,8 @@ class DashboardService : Service() {
         val floatClosed: SharedFlow<Unit> = _floatClosed.asSharedFlow()
 
         const val CHANNEL_ID = "dashboard_service"
-        // Separate high-importance channel for Live Updates — OPPO ColorOS requires DEFAULT+
-        // importance for the 流体云 chip to appear. Can't change existing channel importance,
-        // so a new channel ID is used.
-        const val CHANNEL_LIVE_ID = "dashboard_live_update"
+        const val CHANNEL_LIVE_ID = "dashboard_live_update"  // legacy, kept for deletion
+        const val CHANNEL_CHIP_ID = "dashboard_chip"
         private const val NOTIF_ID = 1001
 
         fun update(ctx: Context) {
@@ -256,25 +254,27 @@ class DashboardService : Service() {
 
         if (p.showLiveUpdate && Build.VERSION.SDK_INT >= 36) {
             val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
-            // contentTitle is what OPPO ColorOS shows inside the 流体云 chip
+            // contentTitle appears inside the 流体云 chip — keep compact, no ¥ symbol
             val chipTitle = buildString {
                 if (p.showNasdaq && nasdaqEntries.isNotEmpty()) {
                     append("纳${nasdaqEntries[0].changePercent}")
                     if (nasdaqEntries.size > 1) append("/${nasdaqEntries[1].changePercent}")
                 }
                 if (p.showGold && gold != null) {
-                    if (isNotEmpty()) append("  ")
-                    append("金${formatGoldPrice(gold.price)}")
+                    if (isNotEmpty()) append(" ")
+                    append("金${gold.price.toInt()}")
                 }
                 if (p.showFunds && dashboard != null) {
                     val up = dashboard.funds.count { it.estimatedImpact > 0 }
                     val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                    if (isNotEmpty()) append("  ")
-                    append("涨$up 跌$down")
+                    if (isNotEmpty()) append(" ")
+                    append("涨${up}跌${down}")
                 }
-                if (isEmpty()) append("基金估值")
+                if (isEmpty()) append("行情")
             }
-            val builder = Notification.Builder(this, CHANNEL_LIVE_ID)
+            // Low-importance channel: chip is promoted via setRequestPromotedOngoing,
+            // so shade notification stays minimal/silent
+            val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
                 .setSmallIcon(R.drawable.ic_stat_notify)
                 .setContentTitle(chipTitle)
                 .setOngoing(true)
@@ -351,19 +351,36 @@ class DashboardService : Service() {
             builder.setStyle(style as Notification.Style)
             true
         } catch (_: Exception) {
-            // MetricStyle not on this device — chip displays contentTitle (set by caller).
-            // No Style set; bare Builder preserves the chip promotion.
-            val compactParts = buildList {
+            // MetricStyle not on this device — chip shows contentTitle (set by caller).
+            // BigTextStyle gives richer expanded layout; if it suppresses chip, remove it.
+            val bigText = buildString {
                 if (p.showNasdaq && nasdaqEntries.isNotEmpty())
-                    add("纳 " + nasdaqEntries.joinToString(" / ") { it.changePercent })
+                    appendLine("纳斯达克  " + nasdaqEntries.joinToString("  /  ") { it.changePercent })
+                if (p.showGold && gold != null)
+                    appendLine("现货黄金  ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
+                if (p.showFunds && dashboard != null) {
+                    val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                    val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                    val top = if (up >= down) dashboard.funds.maxByOrNull { it.estimatedImpact }
+                              else dashboard.funds.minByOrNull { it.estimatedImpact }
+                    val topStr = top?.let { "  ${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""
+                    appendLine("基金  涨$up / 跌$down$topStr")
+                }
+                if (dashboard != null) append(dashboard.timestamp)
+            }.trimEnd()
+            val compactText = buildList {
+                if (p.showNasdaq && nasdaqEntries.isNotEmpty())
+                    add("纳 " + nasdaqEntries.joinToString("/") { it.changePercent })
                 if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
                 if (p.showFunds && dashboard != null) {
                     val up = dashboard.funds.count { it.estimatedImpact > 0 }
                     val down = dashboard.funds.count { it.estimatedImpact < 0 }
                     add("涨$up 跌$down")
                 }
-            }
-            builder.setContentText(compactParts.joinToString("  ·  ").ifEmpty { "加载中..." })
+            }.joinToString("  ·  ").ifEmpty { "加载中..." }
+            builder
+                .setStyle(Notification.BigTextStyle().bigText(bigText))
+                .setContentText(compactText)
             false
         }
 
@@ -472,15 +489,18 @@ class DashboardService : Service() {
             NotificationChannel(CHANNEL_ID, "基金估值", NotificationManager.IMPORTANCE_LOW)
                 .apply { description = "悬浮窗与常驻通知" }
         )
-        // HIGH importance required for OPPO ColorOS 流体云 chip to appear
+        // Chip is promoted via setRequestPromotedOngoing, not channel importance.
+        // Low importance keeps the shade notification silent/minimal.
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_LIVE_ID, "流体云实时行情", NotificationManager.IMPORTANCE_HIGH)
+            NotificationChannel(CHANNEL_CHIP_ID, "流体云", NotificationManager.IMPORTANCE_LOW)
                 .apply {
-                    description = "流体云实时行情"
+                    description = "状态栏流体云胶囊"
                     setShowBadge(false)
                     setSound(null, null)
                     enableVibration(false)
                 }
         )
+        // Remove legacy high-importance channel
+        nm.deleteNotificationChannel(CHANNEL_LIVE_ID)
     }
 }
