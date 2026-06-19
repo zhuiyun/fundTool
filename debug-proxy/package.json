@@ -1,0 +1,15 @@
+{
+  "name": "mobile-debug-proxy",
+  "version": "1.0.0",
+  "description": "手机网络抓包调试工具 - DNS代理 + HTTPS拦截 + 实时可视化",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "start:dns": "node src/index.js --dns"
+  },
+  "dependencies": {
+    "dns2": "^2.1.0",
+    "node-forge": "^1.3.1",
+    "ws": "^8.18.0"
+  }
+}
