@@ -263,8 +263,7 @@ class DashboardService : Service() {
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(launchPi)
-            buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
-                ?.let { return it }
+            return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
         }
 
         if (p.showNotification || p.showLiveUpdate) {
@@ -281,30 +280,33 @@ class DashboardService : Service() {
             .build()
     }
 
-    /** Returns a built Notification with MetricStyle + requestPromotedOngoing, or null if unsupported. */
+    /** Returns a Notification — always non-null. Shows diagnostic info in subtext. */
     private fun buildMetricNotification(
         builder: Notification.Builder,
         p: Prefs,
         nasdaqEntries: List<IndexImpact>,
         dashboard: Dashboard?,
         gold: GoldQuote?
-    ): Notification? {
-        return try {
+    ): Notification {
+        val diag = StringBuilder()
+        try {
             val msCls = Class.forName("android.app.Notification\$MetricStyle")
-            val style = msCls.getDeclaredConstructor().newInstance()
+            diag.append("MS✓")
 
-            // Call setRequestPromotedOngoing on the Style instance (as v1.4 did via direct API)
-            runCatching {
-                msCls.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
-                    .invoke(style, true)
-            }
-            // Belt-and-suspenders: also call it on the Builder before build()
-            runCatching {
-                builder.javaClass.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
-                    .invoke(builder, true)
-            }
+            val style = msCls.getDeclaredConstructor().also { it.isAccessible = true }.newInstance()
 
-            // Add metrics (best-effort; chip appears even if this fails)
+            val rpStyle = runCatching {
+                val m = msCls.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
+                m.invoke(style, true)
+            }
+            diag.append(if (rpStyle.isSuccess) " S✓" else " S✗${rpStyle.exceptionOrNull()?.javaClass?.simpleName}")
+
+            val rpBuilder = runCatching {
+                val m = builder.javaClass.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
+                m.invoke(builder, true)
+            }
+            diag.append(if (rpBuilder.isSuccess) " B✓" else " B✗${rpBuilder.exceptionOrNull()?.javaClass?.simpleName}")
+
             runCatching {
                 val mCls  = Class.forName("android.app.Notification\$Metric")
                 val mbCls = Class.forName("android.app.Notification\$Metric\$Builder")
@@ -312,9 +314,9 @@ class DashboardService : Service() {
                 val mvCls = Class.forName("android.app.Notification\$Metric\$MetricValue")
 
                 fun buildMetric(label: String, value: String): Any? = runCatching {
-                    val mb = mbCls.getDeclaredConstructor().newInstance()
+                    val mb = mbCls.getDeclaredConstructor().also { it.isAccessible = true }.newInstance()
                     mbCls.getMethod("setLabel", CharSequence::class.java).invoke(mb, label)
-                    val ft = ftCls.getDeclaredConstructor(CharSequence::class.java).newInstance(value)
+                    val ft = ftCls.getDeclaredConstructor(CharSequence::class.java).also { it.isAccessible = true }.newInstance(value)
                     mbCls.getMethod("setValue", mvCls).invoke(mb, ft)
                     mbCls.getMethod("build").invoke(mb)
                 }.getOrNull()
@@ -331,22 +333,29 @@ class DashboardService : Service() {
                         buildMetric("基金", "涨$up / 跌$down")?.let { add(it) }
                     }
                 }
-
                 if (items.isNotEmpty()) {
                     val arr = java.lang.reflect.Array.newInstance(mCls, items.size)
                     items.forEachIndexed { i, m -> java.lang.reflect.Array.set(arr, i, m) }
                     msCls.getMethod("setMetrics", arr.javaClass).invoke(style, arr)
+                    diag.append(" M${items.size}✓")
+                } else {
+                    diag.append(" M0")
                 }
-            }
+            }.onFailure { diag.append(" M✗${it.javaClass.simpleName}") }
 
-            builder.setStyle(style as Notification.Style)
+            builder.setStyle(style as Notification.Style).setSubText(diag.toString())
             val notif = builder.build()
-            // Post-build extra as final belt-and-suspenders for OPPO ColorOS
             runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
-            notif
-        } catch (_: Exception) {
-            null
+            return notif
+        } catch (e: Exception) {
+            diag.append("FAIL:${e.javaClass.simpleName}")
+            // MetricStyle not available — fall back to InboxStyle with diagnostic in text
+            return builder
+                .setStyle(Notification.InboxStyle().addLine(diag.toString()))
+                .setContentText(diag.toString())
+                .build()
         }
+    }
     }
 
     private fun buildInboxNotification(launchPi: PendingIntent, p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
