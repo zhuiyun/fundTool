@@ -286,53 +286,31 @@ class DashboardService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
-        val nasdaqParts = buildList {
-            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
-                val v = parsePercentText(e.changePercent)
-                val pct = (if (v >= 0) "+" else "") + e.changePercent.trimStart('+', '-')
-                add("纳${pct}")
-            }
-            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
-                val v = parsePercentText(e.changePercent)
-                val pct = (if (v >= 0) "+" else "") + e.changePercent.trimStart('+', '-')
-                add("百${pct}")
-            }
+        fun signedEntry(e: IndexImpact, prefix: String): String {
+            val v = parsePercentText(e.changePercent)
+            return "$prefix${(if (v >= 0) "+" else "")}${e.changePercent.trimStart('+', '-')}"
         }
-        val nasdaqInTitle = nasdaqParts.isNotEmpty()
-        val chipTitle = nasdaqParts.joinToString("/").ifEmpty {
-            if (p.showGold && gold != null) "金${gold.price.toInt()}"
-            else if (p.showFunds && dashboard != null) {
+        // Chip pill shows only the single most prominent value (no merging)
+        val chipTitle = when {
+            p.showNasdaq && nasdaqEntries.getOrNull(0) != null ->
+                signedEntry(nasdaqEntries[0], "纳")
+            p.showNasdaq100 && nasdaqEntries.getOrNull(1) != null ->
+                signedEntry(nasdaqEntries[1], "百")
+            p.showGold && gold != null -> "金${gold.price.toInt()}"
+            p.showFunds && dashboard != null -> {
                 val up = dashboard.funds.count { it.estimatedImpact > 0 }
                 val down = dashboard.funds.count { it.estimatedImpact < 0 }
                 "涨${up}跌${down}"
-            } else "行情"
-        }
-        // Secondary content for chip left side: try setShortCriticalText (Android 16 API)
-        // then fall back to setContentText; only include data NOT already in chipTitle.
-        val goldInTitle = !nasdaqInTitle && p.showGold && gold != null
-        val fundsInTitle = !nasdaqInTitle && !goldInTitle && p.showFunds && dashboard != null
-        val chipSecondary = buildList {
-            if (p.showGold && gold != null && !goldInTitle) add("金${gold.price.toInt()}")
-            if (p.showFunds && dashboard != null && !fundsInTitle) {
-                val up = dashboard.funds.count { it.estimatedImpact > 0 }
-                val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                add("涨${up}跌${down}")
             }
-        }.joinToString("  ")
+            else -> "行情"
+        }
         val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
             .setContentTitle(chipTitle)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(launchPi)
-        if (chipSecondary.isNotEmpty()) {
-            runCatching {
-                builder.javaClass.getMethod("setShortCriticalText", CharSequence::class.java)
-                    .invoke(builder, chipSecondary)
-            }
-            builder.setContentText(chipSecondary)
-        }
-        return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold, skipNasdaq = nasdaqInTitle)
+        return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
     }
 
     private fun buildMetricNotification(
@@ -340,8 +318,7 @@ class DashboardService : Service() {
         p: Prefs,
         nasdaqEntries: List<IndexImpact>,
         dashboard: Dashboard?,
-        gold: GoldQuote?,
-        skipNasdaq: Boolean = false
+        gold: GoldQuote?
     ): Notification {
         // Confirmed available on OPPO ColorOS 16 via reflection; promotes notification to chip
         runCatching {
@@ -394,9 +371,10 @@ class DashboardService : Service() {
             true
         } catch (_: Exception) {
             // MetricStyle not on this device — use BigTextStyle with +/- signs.
-            // If nasdaq is already shown in the chip title (skipNasdaq=true), skip it here.
+            // BigText always shows every enabled item on its own line (no deduplication).
+            // setBigContentTitle("") hides the bold contentTitle in expanded state.
             val sb = SpannableStringBuilder()
-            val COLOR_LABEL = 0xFFCCCCCC.toInt()   // light gray — category names & neutral values
+            val COLOR_LABEL = 0xFF90CAF9.toInt()   // blue — category names & neutral values
             val COLOR_UP    = 0xFFEE6E70.toInt()   // red  — positive / 涨
             val COLOR_DOWN  = 0xFF34C77E.toInt()   // green — negative / 跌
             val COLOR_TIME  = 0xFF999999.toInt()   // dark gray — timestamps & "加载中"
@@ -410,13 +388,13 @@ class DashboardService : Service() {
                 val abs = raw.trimStart('+', '-')
                 return if (v >= 0) "+$abs" else "-$abs"
             }
-            if (!skipNasdaq && p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
+            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
                 if (sb.isNotEmpty()) sb.append("\n")
                 appendC("纳斯达克  ", COLOR_LABEL)
                 val v = parsePercentText(e.changePercent)
                 appendSigned(signedPct(e.changePercent, v), v)
             }
-            if (!skipNasdaq && p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
+            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
                 if (sb.isNotEmpty()) sb.append("\n")
                 appendC("纳斯达克100  ", COLOR_LABEL)
                 val v = parsePercentText(e.changePercent)
@@ -465,7 +443,7 @@ class DashboardService : Service() {
                 }
             }.joinToString("  ·  ").ifEmpty { "加载中..." }
             builder
-                .setStyle(Notification.BigTextStyle().bigText(bigText))
+                .setStyle(Notification.BigTextStyle().setBigContentTitle("").bigText(bigText))
                 .setContentText(compactText)
             false
         }
