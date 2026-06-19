@@ -289,8 +289,16 @@ class DashboardService : Service() {
         )
         val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
         val nasdaqParts = buildList {
-            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { add("纳${it.changePercent}") }
-            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { add("百${it.changePercent}") }
+            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
+                val v = parsePercentText(e.changePercent)
+                val pct = (if (v >= 0) "+" else "") + e.changePercent.trimStart('+', '-')
+                add("纳${pct}")
+            }
+            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
+                val v = parsePercentText(e.changePercent)
+                val pct = (if (v >= 0) "+" else "") + e.changePercent.trimStart('+', '-')
+                add("百${pct}")
+            }
         }
         val nasdaqInTitle = nasdaqParts.isNotEmpty()
         val chipTitle = nasdaqParts.joinToString("/").ifEmpty {
@@ -326,7 +334,7 @@ class DashboardService : Service() {
             }
             builder.setContentText(chipSecondary)
         }
-        return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold)
+        return buildMetricNotification(builder, p, nasdaqEntries, dashboard, gold, skipNasdaq = nasdaqInTitle)
     }
 
     private fun buildMetricNotification(
@@ -334,7 +342,8 @@ class DashboardService : Service() {
         p: Prefs,
         nasdaqEntries: List<IndexImpact>,
         dashboard: Dashboard?,
-        gold: GoldQuote?
+        gold: GoldQuote?,
+        skipNasdaq: Boolean = false
     ): Notification {
         // Confirmed available on OPPO ColorOS 16 via reflection; promotes notification to chip
         runCatching {
@@ -386,34 +395,37 @@ class DashboardService : Service() {
             builder.setStyle(style as Notification.Style)
             true
         } catch (_: Exception) {
-            // MetricStyle not on this device — use BigTextStyle with ▲/▼ direction symbols.
-            // BigText always shows full detail for all enabled data (no deduplication).
+            // MetricStyle not on this device — use BigTextStyle with +/- signs.
+            // If nasdaq is already shown in the chip title (skipNasdaq=true), skip it here.
             val sb = SpannableStringBuilder()
-            fun sign(v: Double) = if (v >= 0) "▲" else "▼"
             fun appendSigned(text: String, value: Double) {
                 val color = if (value > 0) 0xFFEE6E70.toInt() else 0xFF34C77E.toInt()
                 val start = sb.length
                 sb.append(text)
                 if (value != 0.0) sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
-            if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
+            fun signedPct(raw: String, v: Double): String {
+                val abs = raw.trimStart('+', '-')
+                return if (v >= 0) "+$abs" else "-$abs"
+            }
+            if (!skipNasdaq && p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.append("纳斯达克  ")
                 val v = parsePercentText(e.changePercent)
-                appendSigned("${sign(v)}${e.changePercent}", v)
+                appendSigned(signedPct(e.changePercent, v), v)
             }
-            if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
+            if (!skipNasdaq && p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.append("纳斯达克100  ")
                 val v = parsePercentText(e.changePercent)
-                appendSigned("${sign(v)}${e.changePercent}", v)
+                appendSigned(signedPct(e.changePercent, v), v)
             }
             if (p.showGold && gold != null) {
                 val c = gold.changeAmount
                 val absStr = String.format(java.util.Locale.US, "%.2f", if (c < 0) -c else c)
                 if (sb.isNotEmpty()) sb.append("\n")
                 sb.append("现货黄金  ${formatGoldPrice(gold.price)}  ")
-                appendSigned("${sign(c)}${absStr}", c)
+                appendSigned(if (c >= 0) "+$absStr" else "-$absStr", c)
                 sb.append("  ${formatClockTime(gold.updatedAtMillis).take(5)}")
             }
             if (p.showFunds && dashboard != null) {
@@ -430,9 +442,9 @@ class DashboardService : Service() {
                     val v = top.estimatedImpact
                     val pctAbs = formatPercent(if (v < 0) -v else v)
                     sb.append("  ${top.name.take(5)} ")
-                    appendSigned("${sign(v)}${pctAbs}", v)
+                    appendSigned(if (v >= 0) "+$pctAbs" else "-$pctAbs", v)
                 }
-                sb.append("  ${dashboard.timestamp}")
+                if (dashboard.timestamp.isNotEmpty()) sb.append("  ${dashboard.timestamp}")
             }
             val bigText: CharSequence = if (sb.isEmpty()) "加载中..." else sb
             val compactText = buildList {
