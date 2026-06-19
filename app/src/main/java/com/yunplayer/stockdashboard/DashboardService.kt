@@ -303,15 +303,14 @@ class DashboardService : Service() {
 
         if (p.showLiveUpdate) {
             // requestPromotedOngoing on builder BEFORE build (API 36 method via reflection)
-            applyRequestPromotedOngoing(nativeBuilder)
+            val promotedApplied = applyRequestPromotedOngoing(nativeBuilder)
 
-            // Use InboxStyle — MetricStyle was never actually applied in the previously-working
-            // version (it always failed silently); InboxStyle + setSubText + post-build extras
-            // is the confirmed-working path on OPPO ColorOS.
-            nativeBuilder.setStyle(inboxStyle).setSubText("实时行情")
+            // subText shows diagnostic info so the user can see API level + whether reflection succeeded
+            val diagText = "实时行情 API${Build.VERSION.SDK_INT}${if (promotedApplied) "✓" else "✗"}"
+            nativeBuilder.setStyle(inboxStyle).setSubText(diagText)
 
             val notif = nativeBuilder.build()
-            // Set after build: this is the mechanism confirmed to trigger the chip on OPPO
+            // Set after build: belt-and-suspenders for OPPO ColorOS
             runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
             return notif
         }
@@ -323,12 +322,12 @@ class DashboardService : Service() {
      * Calls Notification.Builder.setRequestPromotedOngoing(true) via reflection — must happen
      * BEFORE build() for the Live Update chip to appear on OPPO ColorOS and other Android 16 OEMs.
      */
-    private fun applyRequestPromotedOngoing(builder: Notification.Builder) {
+    private fun applyRequestPromotedOngoing(builder: Notification.Builder): Boolean {
         try {
             builder.javaClass
                 .getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
                 .invoke(builder, true)
-            return
+            return true
         } catch (_: Exception) { }
         // Fallback: inject via addExtras() before build()
         try {
@@ -337,7 +336,9 @@ class DashboardService : Service() {
             builder.javaClass
                 .getMethod("addExtras", Bundle::class.java)
                 .invoke(builder, b)
+            return true
         } catch (_: Exception) { }
+        return false
     }
 
     /** Returns true if MetricStyle was applied successfully. */
