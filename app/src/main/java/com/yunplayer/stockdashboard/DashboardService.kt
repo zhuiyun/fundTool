@@ -7,7 +7,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Icon
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.text.SpannableStringBuilder
@@ -307,7 +308,11 @@ class DashboardService : Service() {
         }
         val builder = Notification.Builder(this, CHANNEL_CHIP_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
-            .setLargeIcon(Icon.createWithResource(this, R.mipmap.ic_launcher_round))
+            .setLargeIcon(run {
+                val d = getDrawable(R.mipmap.ic_launcher_round)!!
+                val bmp = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
+                d.setBounds(0, 0, 128, 128); d.draw(Canvas(bmp)); bmp
+            })
             .setContentTitle(chipTitle)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -389,15 +394,15 @@ class DashboardService : Service() {
             val updateTime = dashboard?.timestamp?.takeIf { it.isNotEmpty() }
                 ?: gold?.let { formatClockTime(it.updatedAtMillis).take(5) }
 
-            // Title row: nasdaq + nasdaq100 in blue (replaces bold contentTitle in expanded view)
+            // Title row: nasdaq + nasdaq100 in blue — short labels to fit on one line
             val titleSb = SpannableStringBuilder()
             if (p.showNasdaq) nasdaqEntries.getOrNull(0)?.let { e ->
                 val v = parsePercentText(e.changePercent)
-                titleSb.ac("纳斯达克 ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
+                titleSb.ac("纳 ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
             }
             if (p.showNasdaq100) nasdaqEntries.getOrNull(1)?.let { e ->
                 val v = parsePercentText(e.changePercent)
-                if (titleSb.isNotEmpty()) titleSb.ac("    ", COLOR_LABEL)
+                if (titleSb.isNotEmpty()) titleSb.ac("  ", COLOR_LABEL)
                 titleSb.ac("纳100 ", COLOR_LABEL).ac(signedPct(e.changePercent, v), signedColor(v))
             }
             val bigContentTitle: CharSequence =
