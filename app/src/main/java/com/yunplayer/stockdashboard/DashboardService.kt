@@ -288,12 +288,20 @@ class DashboardService : Service() {
         dashboard: Dashboard?,
         gold: GoldQuote?
     ): Notification {
-        // ALWAYS call setRequestPromotedOngoing on Builder first — OPPO ColorOS does not have
-        // Notification.MetricStyle but may support the chip via the Builder method alone.
+        // Enumerate Builder methods related to promotion/live to diagnose OPPO API
+        val promoMethods = builder.javaClass.methods
+            .filter { m -> m.name.lowercase().let { n ->
+                "promot" in n || "live" in n || "ongoing" in n || "chip" in n || "push" in n
+            }}
+            .map { it.name }.distinct().joinToString(" ")
+        val diagPrefix = if (promoMethods.isNotEmpty()) promoMethods.take(120) else "no-promo-methods"
+
+        // Try setRequestPromotedOngoing on Builder
         val rpBuilder = runCatching {
             builder.javaClass.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
                 .invoke(builder, true)
         }
+        val rpStatus = if (rpBuilder.isSuccess) "B✓" else "B✗"
 
         // Try MetricStyle for stock Android 16 (will fail with ClassNotFoundException on OPPO)
         val metricStyleApplied = try {
@@ -334,6 +342,7 @@ class DashboardService : Service() {
                 }
             }
             builder.setStyle(style as Notification.Style)
+                .setSubText("MS✓ $rpStatus")
             true
         } catch (_: Exception) {
             // MetricStyle not available (OPPO ColorOS etc.) — fall back to InboxStyle
@@ -349,6 +358,7 @@ class DashboardService : Service() {
                 }
             }
             val inboxStyle = Notification.InboxStyle()
+            inboxStyle.addLine("DIAG: $rpStatus $diagPrefix")
             if (p.showNasdaq) nasdaqEntries.forEach { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
             if (p.showGold && gold != null)
                 inboxStyle.addLine("现货黄金   ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
@@ -362,7 +372,7 @@ class DashboardService : Service() {
             if (dashboard != null) inboxStyle.setSummaryText(dashboard.timestamp)
             builder
                 .setStyle(inboxStyle)
-                .setContentText(compactParts.joinToString("  ·  ").ifEmpty { "加载中..." })
+                .setContentText("$rpStatus ${compactParts.joinToString("  ·  ").ifEmpty { "加载中..." }}")
             false
         }
 
