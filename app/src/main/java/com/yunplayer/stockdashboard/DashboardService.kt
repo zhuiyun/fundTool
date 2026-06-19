@@ -345,11 +345,15 @@ class DashboardService : Service() {
                 .setSubText("MS✓ $rpStatus")
             true
         } catch (_: Exception) {
-            // MetricStyle not available (OPPO ColorOS etc.) — fall back to InboxStyle
-            // The Builder.setRequestPromotedOngoing above is still in effect
+            // MetricStyle not available — do NOT set any Style, just bare Builder.
+            // InboxStyle/BigTextStyle can suppress the chip; bare Builder preserves it.
+            val notifInners = runCatching {
+                Notification::class.java.declaredClasses
+                    .map { it.simpleName }.joinToString(",")
+            }.getOrDefault("?")
             val compactParts = buildList {
                 if (p.showNasdaq && nasdaqEntries.isNotEmpty())
-                    add("纳 " + nasdaqEntries.joinToString(" / ") { it.changePercent })
+                    add("纳 " + nasdaqEntries.joinToString("/") { it.changePercent })
                 if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
                 if (p.showFunds && dashboard != null) {
                     val up = dashboard.funds.count { it.estimatedImpact > 0 }
@@ -357,22 +361,9 @@ class DashboardService : Service() {
                     add("涨$up 跌$down")
                 }
             }
-            val inboxStyle = Notification.InboxStyle()
-            inboxStyle.addLine("DIAG: $rpStatus $diagPrefix")
-            if (p.showNasdaq) nasdaqEntries.forEach { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
-            if (p.showGold && gold != null)
-                inboxStyle.addLine("现货黄金   ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
-            if (p.showFunds && dashboard != null) {
-                val up = dashboard.funds.count { it.estimatedImpact > 0 }
-                val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                val top = if (up >= down) dashboard.funds.maxByOrNull { it.estimatedImpact }
-                          else dashboard.funds.minByOrNull { it.estimatedImpact }
-                inboxStyle.addLine("涨$up / 跌$down${top?.let { "  ${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""}")
-            }
-            if (dashboard != null) inboxStyle.setSummaryText(dashboard.timestamp)
-            builder
-                .setStyle(inboxStyle)
-                .setContentText("$rpStatus ${compactParts.joinToString("  ·  ").ifEmpty { "加载中..." }}")
+            builder.setContentText(
+                "$rpStatus ${compactParts.joinToString("·").ifEmpty { "..." }} NI:${notifInners.take(60)}"
+            )
             false
         }
 
