@@ -288,31 +288,26 @@ class DashboardService : Service() {
         dashboard: Dashboard?,
         gold: GoldQuote?
     ): Notification {
-        val diag = StringBuilder()
-        try {
+        // ALWAYS call setRequestPromotedOngoing on Builder first — OPPO ColorOS does not have
+        // Notification.MetricStyle but may support the chip via the Builder method alone.
+        val rpBuilder = runCatching {
+            builder.javaClass.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
+                .invoke(builder, true)
+        }
+
+        // Try MetricStyle for stock Android 16 (will fail with ClassNotFoundException on OPPO)
+        val metricStyleApplied = try {
             val msCls = Class.forName("android.app.Notification\$MetricStyle")
-            diag.append("MS✓")
-
             val style = msCls.getDeclaredConstructor().also { it.isAccessible = true }.newInstance()
-
-            val rpStyle = runCatching {
-                val m = msCls.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
-                m.invoke(style, true)
+            runCatching {
+                msCls.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
+                    .invoke(style, true)
             }
-            diag.append(if (rpStyle.isSuccess) " S✓" else " S✗${rpStyle.exceptionOrNull()?.javaClass?.simpleName}")
-
-            val rpBuilder = runCatching {
-                val m = builder.javaClass.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
-                m.invoke(builder, true)
-            }
-            diag.append(if (rpBuilder.isSuccess) " B✓" else " B✗${rpBuilder.exceptionOrNull()?.javaClass?.simpleName}")
-
             runCatching {
                 val mCls  = Class.forName("android.app.Notification\$Metric")
                 val mbCls = Class.forName("android.app.Notification\$Metric\$Builder")
                 val ftCls = Class.forName("android.app.Notification\$Metric\$FixedText")
                 val mvCls = Class.forName("android.app.Notification\$Metric\$MetricValue")
-
                 fun buildMetric(label: String, value: String): Any? = runCatching {
                     val mb = mbCls.getDeclaredConstructor().also { it.isAccessible = true }.newInstance()
                     mbCls.getMethod("setLabel", CharSequence::class.java).invoke(mb, label)
@@ -320,7 +315,6 @@ class DashboardService : Service() {
                     mbCls.getMethod("setValue", mvCls).invoke(mb, ft)
                     mbCls.getMethod("build").invoke(mb)
                 }.getOrNull()
-
                 val items = buildList {
                     if (p.showNasdaq) nasdaqEntries.forEach { e ->
                         buildMetric(e.name.take(5), e.changePercent)?.let { add(it) }
@@ -337,25 +331,47 @@ class DashboardService : Service() {
                     val arr = java.lang.reflect.Array.newInstance(mCls, items.size)
                     items.forEachIndexed { i, m -> java.lang.reflect.Array.set(arr, i, m) }
                     msCls.getMethod("setMetrics", arr.javaClass).invoke(style, arr)
-                    diag.append(" M${items.size}✓")
-                } else {
-                    diag.append(" M0")
                 }
-            }.onFailure { diag.append(" M✗${it.javaClass.simpleName}") }
-
-            builder.setStyle(style as Notification.Style).setSubText(diag.toString())
-            val notif = builder.build()
-            runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
-            return notif
-        } catch (e: Exception) {
-            diag.append("FAIL:${e.javaClass.simpleName}")
-            // MetricStyle not available — fall back to InboxStyle with diagnostic in text
-            return builder
-                .setStyle(Notification.InboxStyle().addLine(diag.toString()))
-                .setContentText(diag.toString())
-                .build()
+            }
+            builder.setStyle(style as Notification.Style)
+            true
+        } catch (_: Exception) {
+            // MetricStyle not available (OPPO ColorOS etc.) — fall back to InboxStyle
+            // The Builder.setRequestPromotedOngoing above is still in effect
+            val compactParts = buildList {
+                if (p.showNasdaq && nasdaqEntries.isNotEmpty())
+                    add("纳 " + nasdaqEntries.joinToString(" / ") { it.changePercent })
+                if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
+                if (p.showFunds && dashboard != null) {
+                    val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                    val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                    add("涨$up 跌$down")
+                }
+            }
+            val inboxStyle = Notification.InboxStyle()
+            if (p.showNasdaq) nasdaqEntries.forEach { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
+            if (p.showGold && gold != null)
+                inboxStyle.addLine("现货黄金   ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
+            if (p.showFunds && dashboard != null) {
+                val up = dashboard.funds.count { it.estimatedImpact > 0 }
+                val down = dashboard.funds.count { it.estimatedImpact < 0 }
+                val top = if (up >= down) dashboard.funds.maxByOrNull { it.estimatedImpact }
+                          else dashboard.funds.minByOrNull { it.estimatedImpact }
+                inboxStyle.addLine("涨$up / 跌$down${top?.let { "  ${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""}")
+            }
+            if (dashboard != null) inboxStyle.setSummaryText(dashboard.timestamp)
+            builder
+                .setStyle(inboxStyle)
+                .setContentText(compactParts.joinToString("  ·  ").ifEmpty { "加载中..." })
+            false
         }
+
+        val notif = builder.build()
+        // Post-build extras as final fallback
+        runCatching { notif.extras.putBoolean("android.requestPromotedOngoing", true) }
+        return notif
     }
+
 
     private fun buildInboxNotification(launchPi: PendingIntent, p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
         val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
