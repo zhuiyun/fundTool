@@ -9,8 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
-import android.os.Build
-import android.os.Bundle
 import android.os.IBinder
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -39,7 +37,7 @@ class DashboardService : Service() {
     private var floatView: View? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
-    private var lastDashboard: Dashboard? = null
+    // private var lastDashboard: Dashboard? = null
     private var lastGold: GoldQuote? = null
 
     companion object {
@@ -69,7 +67,7 @@ class DashboardService : Service() {
         _serviceRunning.value = true
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification(readPrefs(), null, null))
+        startForeground(NOTIF_ID, buildNotification(readPrefs(), null))
         startPolling()
     }
 
@@ -89,13 +87,15 @@ class DashboardService : Service() {
     private fun startPolling() {
         scope.launch {
             while (isActive) {
+                /*
                 val dashboard = runCatching {
                     withContext(Dispatchers.IO) { StockRepository().fetchDashboard() }
                 }.getOrNull()
+                if (dashboard != null) lastDashboard = dashboard
+                */
                 val gold = runCatching {
                     withContext(Dispatchers.IO) { GoldRepository().fetchLatest() }
                 }.getOrNull()
-                if (dashboard != null) lastDashboard = dashboard
                 if (gold != null) lastGold = gold
 
                 val p = readPrefs()
@@ -185,32 +185,11 @@ class DashboardService : Service() {
 
     private fun updateFloatContent(p: Prefs) {
         val v = floatView ?: return
-        val dashboard = lastDashboard
         val gold = lastGold
 
-        val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
-        val composite = nasdaqEntries.getOrNull(0)
-        val n100 = nasdaqEntries.getOrNull(1)
-
-        val nasdaqRow = v.findViewById<View>(R.id.float_nasdaq_row)
-        if (p.showNasdaq && composite != null) {
-            nasdaqRow.visibility = View.VISIBLE
-            val tv = v.findViewById<TextView>(R.id.float_nasdaq_value)
-            tv.text = composite.changePercent
-            tv.setTextColor(trendColorInt(parsePercentText(composite.changePercent)))
-        } else {
-            nasdaqRow.visibility = View.GONE
-        }
-
-        val nasdaq100Row = v.findViewById<View>(R.id.float_nasdaq100_row)
-        if (p.showNasdaq && n100 != null) {
-            nasdaq100Row.visibility = View.VISIBLE
-            val tv100 = v.findViewById<TextView>(R.id.float_nasdaq100_value)
-            tv100.text = n100.changePercent
-            tv100.setTextColor(trendColorInt(parsePercentText(n100.changePercent)))
-        } else {
-            nasdaq100Row.visibility = View.GONE
-        }
+        // Nasdaq rows hidden (no longer fetching index data)
+        v.findViewById<View>(R.id.float_nasdaq_row).visibility = View.GONE
+        v.findViewById<View>(R.id.float_nasdaq100_row).visibility = View.GONE
 
         val goldRow = v.findViewById<View>(R.id.float_gold_row)
         if (p.showGold && gold != null) {
@@ -221,33 +200,18 @@ class DashboardService : Service() {
             goldRow.visibility = View.GONE
         }
 
-        val fundsRow = v.findViewById<View>(R.id.float_funds_row)
-        if (p.showFunds && dashboard != null) {
-            fundsRow.visibility = View.VISIBLE
-            val up = dashboard.funds.count { it.estimatedImpact > 0 }
-            val down = dashboard.funds.count { it.estimatedImpact < 0 }
-            val top = if (up >= down)
-                dashboard.funds.maxByOrNull { it.estimatedImpact }
-            else
-                dashboard.funds.minByOrNull { it.estimatedImpact }
-            val countTv = v.findViewById<TextView>(R.id.float_funds_count)
-            countTv.text = "涨$up / 跌$down"
-            countTv.setTextColor(if (up >= down) 0xFFEE6E70.toInt() else 0xFF34C77E.toInt())
-            v.findViewById<TextView>(R.id.float_funds_top).text =
-                top?.let { "${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""
-        } else {
-            fundsRow.visibility = View.GONE
-        }
+        // Funds row hidden (no longer fetching fund data)
+        v.findViewById<View>(R.id.float_funds_row).visibility = View.GONE
     }
 
     // ── Notification ──────────────────────────────────────────────────────────
 
     private fun refreshNotification(p: Prefs) {
         getSystemService(NotificationManager::class.java)
-            .notify(NOTIF_ID, buildNotification(p, lastDashboard, lastGold))
+            .notify(NOTIF_ID, buildNotification(p, lastGold))
     }
 
-    private fun buildNotification(p: Prefs, dashboard: Dashboard?, gold: GoldQuote?): Notification {
+    private fun buildNotification(p: Prefs, gold: GoldQuote?): Notification {
         val launchPi = PendingIntent.getActivity(
             this, 0,
             packageManager.getLaunchIntentForPackage(packageName),
@@ -255,22 +219,12 @@ class DashboardService : Service() {
         )
 
         val showRich = p.showNotification || p.showLiveUpdate
-        val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
 
         val chipParts = buildList {
-            if (showRich && p.showNasdaq && nasdaqEntries.isNotEmpty()) {
-                add("纳 " + nasdaqEntries.joinToString(" / ") { it.changePercent })
-            }
             if (showRich && p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
-            if (showRich && p.showFunds && dashboard != null) {
-                val up = dashboard.funds.count { it.estimatedImpact > 0 }
-                val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                add("涨$up 跌$down")
-            }
         }
-        val chipTitle = chipParts.joinToString("  ·  ").ifEmpty { if (showRich) "加载中..." else "基金估值" }
+        val chipTitle = chipParts.joinToString("  ·  ").ifEmpty { "热门美股" }
 
-        // Use native Notification.Builder so we can cast MetricStyle from reflection
         val nativeBuilder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
             .setOngoing(true)
@@ -284,117 +238,15 @@ class DashboardService : Service() {
                 .build()
         }
 
-        // InboxStyle for the expanded notification drawer view
         val inboxStyle = Notification.InboxStyle()
-        if (p.showNasdaq) {
-            nasdaqEntries.forEach { inboxStyle.addLine("${it.name}   ${it.changePercent}") }
-        }
         if (p.showGold && gold != null) {
             inboxStyle.addLine("现货黄金   ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
-        }
-        if (p.showFunds && dashboard != null) {
-            val up = dashboard.funds.count { it.estimatedImpact > 0 }
-            val down = dashboard.funds.count { it.estimatedImpact < 0 }
-            val top = if (up >= down) dashboard.funds.maxByOrNull { it.estimatedImpact }
-                      else dashboard.funds.minByOrNull { it.estimatedImpact }
-            val topText = top?.let { "  ${it.name.take(5)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""
-            inboxStyle.addLine("涨$up / 跌$down$topText")
-        }
-        if (dashboard != null) inboxStyle.setSummaryText("更新于 ${dashboard.timestamp}")
-
-        if (Build.VERSION.SDK_INT >= 36 && p.showLiveUpdate) {
-            // Attempt 1: use Notification.MetricStyle via reflection (the proper Android 16 API
-            // for Live Update chips; not in the public SDK jar but exists on Android 16 devices)
-            val usedMetricStyle = tryBuildWithMetricStyle(nativeBuilder, p, nasdaqEntries, dashboard, gold)
-
-            if (!usedMetricStyle) {
-                // Attempt 2: InboxStyle + set requestPromotedOngoing on the BUILT notification.
-                // Setting it on notification.extras after build() is confirmed to work on HyperOS.
-                nativeBuilder.setStyle(inboxStyle).setSubText("基金估值")
-                val notif = nativeBuilder.build()
-                notif.extras.putBoolean("android.requestPromotedOngoing", true)
-                return notif
-            }
-            return nativeBuilder.build()
         }
 
         return nativeBuilder
             .setStyle(inboxStyle)
-            .setSubText("基金估值")
+            .setSubText("热门美股")
             .build()
-    }
-
-    /** Returns true if MetricStyle was applied successfully. */
-    private fun tryBuildWithMetricStyle(
-        builder: Notification.Builder,
-        p: Prefs,
-        nasdaqEntries: List<IndexImpact>,
-        dashboard: Dashboard?,
-        gold: GoldQuote?
-    ): Boolean {
-        return try {
-            val msCls = Class.forName("android.app.Notification\$MetricStyle")
-            val ms = msCls.getDeclaredConstructor().newInstance() as Notification.Style
-            msCls.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType).invoke(ms, true)
-
-            // Try to populate Metric items so the chip shows real data
-            try {
-                val mCls = Class.forName("android.app.Notification\$Metric")
-                val mbCls = Class.forName("android.app.Notification\$Metric\$Builder")
-                val ftCls = Class.forName("android.app.Notification\$Metric\$FixedText")
-                val mvCls = Class.forName("android.app.Notification\$Metric\$MetricValue")
-
-                fun metric(label: String, value: String): Any {
-                    val mb = mbCls.getDeclaredConstructor().newInstance()
-                    mbCls.getMethod("setLabel", CharSequence::class.java).invoke(mb, label)
-                    val ft = ftCls.getDeclaredConstructor(CharSequence::class.java).newInstance(value)
-                    mbCls.getMethod("setValue", mvCls).invoke(mb, ft)
-                    return mbCls.getMethod("build").invoke(mb)!!
-                }
-
-                val items = buildList {
-                    if (p.showNasdaq && nasdaqEntries.isNotEmpty()) {
-                        add(metric("纳斯达克", nasdaqEntries[0].changePercent))
-                        nasdaqEntries.getOrNull(1)?.let { add(metric("纳100", it.changePercent)) }
-                    }
-                    if (p.showGold && gold != null) add(metric("黄金", formatGoldPrice(gold.price)))
-                    if (p.showFunds && dashboard != null) {
-                        val up = dashboard.funds.count { it.estimatedImpact > 0 }
-                        val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                        add(metric("涨跌", "涨$up 跌$down"))
-                    }
-                }
-                if (items.isNotEmpty()) {
-                    val arr = java.lang.reflect.Array.newInstance(mCls, items.size)
-                    items.forEachIndexed { i, m ->
-                        java.lang.reflect.Array.set(arr, i, m)
-                    }
-                    msCls.getMethod("setMetrics", arr.javaClass).invoke(ms, arr)
-                }
-            } catch (_: Exception) { /* metrics optional */ }
-
-            builder.setStyle(ms)
-            true
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private fun findNasdaqEntries(d: Dashboard): List<IndexImpact> {
-        val all = d.indexes.filter {
-            it.name.contains("纳斯达克") || it.name.contains("NASDAQ", ignoreCase = true)
-        }
-        val composite = all.firstOrNull { !it.name.contains("100") }
-        val n100 = all.firstOrNull { it.name.contains("100") }
-        return listOfNotNull(composite, n100)
-    }
-
-    private fun trendColorInt(v: Double) = when {
-        v > 0 -> 0xFFEE6E70.toInt()
-        v < 0 -> 0xFF34C77E.toInt()
-        else -> 0xFFFFFFFF.toInt()
     }
 
     // ── Service lifecycle ─────────────────────────────────────────────────────
@@ -415,9 +267,7 @@ class DashboardService : Service() {
         val showFloat: Boolean,
         val showNotification: Boolean,
         val showLiveUpdate: Boolean,
-        val showNasdaq: Boolean,
         val showGold: Boolean,
-        val showFunds: Boolean
     )
 
     private fun readPrefs(): Prefs {
@@ -426,14 +276,12 @@ class DashboardService : Service() {
             showFloat = sp.getBoolean("show_float", false),
             showNotification = sp.getBoolean("show_notification", false),
             showLiveUpdate = sp.getBoolean("show_live_update", false),
-            showNasdaq = sp.getBoolean("overlay_nasdaq", true),
             showGold = sp.getBoolean("overlay_gold", true),
-            showFunds = sp.getBoolean("overlay_funds", true)
         )
     }
 
     private fun createNotificationChannel() {
-        val ch = NotificationChannel(CHANNEL_ID, "基金估值", NotificationManager.IMPORTANCE_LOW)
+        val ch = NotificationChannel(CHANNEL_ID, "热门美股", NotificationManager.IMPORTANCE_LOW)
             .apply { description = "悬浮窗与常驻通知" }
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }

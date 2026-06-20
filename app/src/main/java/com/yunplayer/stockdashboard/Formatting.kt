@@ -18,11 +18,12 @@ fun parsePercentText(value: String): Double {
     return value.replace("%", "").trim().toDoubleOrNull() ?: 0.0
 }
 
+/*
 fun marketSummaryItems(indexes: List<IndexImpact>): List<IndexImpact> {
-    // 单行横向滑动展示全部指数，仅把"汇率"统一移到末位
     val exchangeRate = indexes.firstOrNull { it.name.contains("汇率") } ?: return indexes
     return indexes.filterNot { it === exchangeRate } + exchangeRate
 }
+*/
 
 fun formatGoldPrice(value: Double): String {
     return "¥" + String.format(Locale.US, "%.2f", value)
@@ -38,6 +39,16 @@ fun formatClockTime(
     zoneId: ZoneId = ZoneId.systemDefault()
 ): String {
     return TIME_FORMATTER.format(Instant.ofEpochMilli(epochMillis).atZone(zoneId))
+}
+
+fun formatPrice(value: Double): String =
+    "$" + String.format(Locale.US, "%.2f", value)
+
+fun formatVolume(v: Long): String = when {
+    v >= 1_000_000_000L -> String.format(Locale.US, "%.1fB", v / 1_000_000_000.0)
+    v >= 1_000_000L -> String.format(Locale.US, "%.1fM", v / 1_000_000.0)
+    v >= 1_000L -> String.format(Locale.US, "%.1fK", v / 1_000.0)
+    else -> v.toString()
 }
 
 private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")

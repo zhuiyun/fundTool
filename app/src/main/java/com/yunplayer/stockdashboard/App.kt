@@ -9,7 +9,6 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,10 +35,7 @@ fun StockDashboardApp(
     val showFloat = themeViewModel.showFloat.collectAsStateWithLifecycle().value
     val showNotification = themeViewModel.showNotification.collectAsStateWithLifecycle().value
     val showLiveUpdate = themeViewModel.showLiveUpdate.collectAsStateWithLifecycle().value
-    val floatRunning = DashboardService.floatRunning.collectAsStateWithLifecycle().value
-    val overlayNasdaq = themeViewModel.overlayNasdaq.collectAsStateWithLifecycle().value
     val overlayGold = themeViewModel.overlayGold.collectAsStateWithLifecycle().value
-    val overlayFunds = themeViewModel.overlayFunds.collectAsStateWithLifecycle().value
     val darkTheme = themeMode.resolveDark(isSystemInDarkTheme())
     val activity = LocalContext.current as ComponentActivity
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -65,7 +61,6 @@ fun StockDashboardApp(
         }
     }
 
-    // Gold polling lifecycle
     DisposableEffect(lifecycleOwner, dashboardViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -81,18 +76,14 @@ fun StockDashboardApp(
         }
     }
 
-    // Sync float/notification state from SharedPrefs on resume (service may have changed them)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                themeViewModel.syncFromPrefs()
-            }
+            if (event == Lifecycle.Event.ON_RESUME) themeViewModel.syncFromPrefs()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Start/stop DashboardService when prefs change
     LaunchedEffect(showFloat, showNotification, showLiveUpdate) {
         if (showFloat || showNotification || showLiveUpdate) {
             DashboardService.update(activity)
@@ -101,13 +92,11 @@ fun StockDashboardApp(
         }
     }
 
-    // Re-configure service when overlay content prefs change
-    LaunchedEffect(overlayNasdaq, overlayGold, overlayFunds) {
+    LaunchedEffect(overlayGold) {
         if (showFloat || showNotification || showLiveUpdate) DashboardService.update(activity)
         FundWidget.requestUpdate(activity)
     }
 
-    // When user closes float from X button, sync pref in ViewModel
     LaunchedEffect(Unit) {
         DashboardService.floatClosed.collect {
             themeViewModel.setShowFloat(false)
@@ -126,11 +115,6 @@ fun StockDashboardApp(
         )
     }
 
-    val showingDetail = state.detailLoading || state.detailError != null || state.detail != null
-    BackHandler(enabled = showingDetail) {
-        dashboardViewModel.closeDetail()
-    }
-
     StockDashboardTheme(darkTheme = darkTheme) {
         DashboardRoute(
             state = state,
@@ -138,7 +122,6 @@ fun StockDashboardApp(
             onThemeModeSelected = themeViewModel::select,
             showGold = showGold,
             onShowGoldChange = themeViewModel::setShowGold,
-            floatRunning = floatRunning,
             showFloat = showFloat,
             onFloatToggle = {
                 if (!showFloat) {
@@ -170,12 +153,8 @@ fun StockDashboardApp(
                     themeViewModel.setShowNotification(true)
                 }
             },
-            overlayNasdaq = overlayNasdaq,
-            onOverlayNasdaqChange = themeViewModel::setOverlayNasdaq,
             overlayGold = overlayGold,
             onOverlayGoldChange = themeViewModel::setOverlayGold,
-            overlayFunds = overlayFunds,
-            onOverlayFundsChange = themeViewModel::setOverlayFunds,
             showLiveUpdate = showLiveUpdate,
             onShowLiveUpdateChange = {
                 if (showLiveUpdate) {
@@ -190,10 +169,7 @@ fun StockDashboardApp(
                 }
             },
             onRefresh = dashboardViewModel::refreshAll,
-            onFundSelected = dashboardViewModel::selectFund,
-            onBack = dashboardViewModel::closeDetail,
-            onRetryDetail = dashboardViewModel::retryDetail,
-            onToggleExpanded = dashboardViewModel::toggleExpanded
+            onTabSelected = dashboardViewModel::selectTab,
         )
     }
 }

@@ -1,5 +1,6 @@
 package com.yunplayer.stockdashboard
 
+/*
 data class Dashboard(
     val indexes: List<IndexImpact>,
     val funds: List<FundImpact>,
@@ -33,3 +34,21 @@ data class Holding(
     val weight: Double,
     val change: Double
 )
+*/
+
+data class HotStock(
+    val symbol: String,
+    val name: String,
+    val price: Double,
+    val changePercent: Double,
+    val changeAmount: Double,
+    val volume: Long,
+    val preMarketPrice: Double? = null,
+    val preMarketChangePercent: Double? = null,
+)
+
+enum class StockTab(val label: String) {
+    Gainers("涨幅榜"),
+    Losers("跌幅榜"),
+    Actives("活跃榜"),
+}

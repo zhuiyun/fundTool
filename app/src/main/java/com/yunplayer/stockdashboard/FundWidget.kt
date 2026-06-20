@@ -26,12 +26,12 @@ class FundWidget : AppWidgetProvider() {
     ) {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
-            val dashboard = runCatching { StockRepository().fetchDashboard() }.getOrNull()
+            // val dashboard = runCatching { StockRepository().fetchDashboard() }.getOrNull()
             val gold = runCatching { GoldRepository().fetchLatest() }.getOrNull()
             val prefs = loadWidgetPrefs(context)
             withContext(Dispatchers.Main) {
                 for (id in appWidgetIds) {
-                    appWidgetManager.updateAppWidget(id, buildViews(context, prefs, dashboard, gold))
+                    appWidgetManager.updateAppWidget(id, buildViews(context, prefs, gold))
                 }
                 pending.finish()
             }
@@ -52,24 +52,19 @@ class FundWidget : AppWidgetProvider() {
         }
 
         private data class WidgetPrefs(
-            val showNasdaq: Boolean,
             val showGold: Boolean,
-            val showFunds: Boolean
         )
 
         private fun loadWidgetPrefs(context: Context): WidgetPrefs {
             val prefs = context.getSharedPreferences("theme_preferences", Context.MODE_PRIVATE)
             return WidgetPrefs(
-                showNasdaq = prefs.getBoolean("overlay_nasdaq", true),
                 showGold = prefs.getBoolean("overlay_gold", true),
-                showFunds = prefs.getBoolean("overlay_funds", true)
             )
         }
 
         private fun buildViews(
             context: Context,
             prefs: WidgetPrefs,
-            dashboard: Dashboard?,
             gold: GoldQuote?
         ): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_layout)
@@ -86,68 +81,26 @@ class FundWidget : AppWidgetProvider() {
             val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
             views.setTextViewText(R.id.widget_time, timeStr)
 
-            // Nasdaq row (composite + 100 in one line)
-            val nasdaqEntries = dashboard?.let { findNasdaqEntries(it) } ?: emptyList()
-            val showNasdaqRow = prefs.showNasdaq && nasdaqEntries.isNotEmpty()
-            views.setViewVisibility(R.id.widget_nasdaq_row, if (showNasdaqRow) View.VISIBLE else View.GONE)
-            if (showNasdaqRow) {
-                val composite = nasdaqEntries[0]
-                val n100 = nasdaqEntries.getOrNull(1)
-                val text = if (n100 != null)
-                    "${composite.changePercent}  /  ${n100.changePercent}"
-                else
-                    composite.changePercent
-                views.setTextViewText(R.id.widget_nasdaq_value, text)
-                views.setTextColor(R.id.widget_nasdaq_value, trendColor(parsePercentText(composite.changePercent)))
-            }
+            // Nasdaq row hidden (no longer fetching index data)
+            views.setViewVisibility(R.id.widget_nasdaq_row, View.GONE)
 
             // Gold row
             views.setViewVisibility(R.id.widget_gold_row, if (prefs.showGold) View.VISIBLE else View.GONE)
             if (prefs.showGold) {
                 if (gold != null) {
                     views.setTextViewText(R.id.widget_gold_price, formatGoldPrice(gold.price))
-                    val change = gold.changePercent
-                    views.setTextViewText(R.id.widget_gold_change, formatSignedPercent(change))
-                    views.setTextColor(R.id.widget_gold_change, trendColor(change))
+                    views.setTextViewText(R.id.widget_gold_change, formatSignedPercent(gold.changePercent))
+                    views.setTextColor(R.id.widget_gold_change, trendColor(gold.changePercent))
                 } else {
                     views.setTextViewText(R.id.widget_gold_price, "--")
                     views.setTextViewText(R.id.widget_gold_change, "")
                 }
             }
 
-            // Funds row
-            views.setViewVisibility(R.id.widget_funds_row, if (prefs.showFunds) View.VISIBLE else View.GONE)
-            if (prefs.showFunds) {
-                if (dashboard != null) {
-                    val up = dashboard.funds.count { it.estimatedImpact > 0 }
-                    val down = dashboard.funds.count { it.estimatedImpact < 0 }
-                    val net = up - down
-                    views.setTextViewText(R.id.widget_funds_count, "涨$up / 跌$down")
-                    views.setTextColor(R.id.widget_funds_count, trendColor(net.toDouble()))
-                    val top = if (up >= down)
-                        dashboard.funds.maxByOrNull { it.estimatedImpact }
-                    else
-                        dashboard.funds.minByOrNull { it.estimatedImpact }
-                    views.setTextViewText(
-                        R.id.widget_funds_top,
-                        top?.let { " ${it.name.take(6)} ${formatSignedPercent(it.estimatedImpact)}" } ?: ""
-                    )
-                } else {
-                    views.setTextViewText(R.id.widget_funds_count, "--")
-                    views.setTextViewText(R.id.widget_funds_top, "")
-                }
-            }
+            // Funds row hidden (no longer fetching fund data)
+            views.setViewVisibility(R.id.widget_funds_row, View.GONE)
 
             return views
-        }
-
-        private fun findNasdaqEntries(d: Dashboard): List<IndexImpact> {
-            val all = d.indexes.filter {
-                it.name.contains("纳斯达克") || it.name.contains("NASDAQ", ignoreCase = true)
-            }
-            val composite = all.firstOrNull { !it.name.contains("100") }
-            val n100 = all.firstOrNull { it.name.contains("100") }
-            return listOfNotNull(composite, n100)
         }
 
         private fun trendColor(v: Double): Int = when {

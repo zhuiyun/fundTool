@@ -2,8 +2,8 @@ package com.yunplayer.stockdashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import java.time.LocalTime
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,32 +16,27 @@ import kotlinx.coroutines.launch
 data class DashboardUiState(
     val loading: Boolean = true,
     val error: String? = null,
-    val dashboard: Dashboard? = null,
-    val selectedFundId: Int? = null,
-    val detailLoading: Boolean = false,
-    val detailError: String? = null,
-    val detail: FundDetail? = null,
-    val expanded: Boolean = false,
+    val gainers: List<HotStock> = emptyList(),
+    val losers: List<HotStock> = emptyList(),
+    val actives: List<HotStock> = emptyList(),
+    val activeTab: StockTab = StockTab.Gainers,
     val refreshing: Boolean = false,
     val goldLoading: Boolean = false,
     val goldError: String? = null,
-    val goldQuote: GoldQuote? = null
+    val goldQuote: GoldQuote? = null,
 )
 
 class StockDashboardViewModel(
-    private val dataSource: StockDataSource,
+    private val dataSource: HotStocksSource,
     private val goldDataSource: GoldDataSource? = null,
     autoRefreshMillis: Long? = 60_000L,
     private val goldPollingMillis: Long = 1_000L,
-    private val currentHour: () -> Int = { LocalTime.now().hour }
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = mutableUiState.asStateFlow()
 
     private var refreshJob: Job? = null
-    private var detailJob: Job? = null
     private var goldPollingJob: Job? = null
-    private var refreshRequestId: Long = 0L
 
     init {
         refresh()
@@ -49,41 +44,36 @@ class StockDashboardViewModel(
             viewModelScope.launch {
                 while (true) {
                     delay(autoRefreshMillis)
-                    if (isUsTradingHours()) refresh()
+                    refresh()
                 }
             }
         }
-    }
-
-    // 美股盘前(16:00 CST)至收盘(次日05:00 CST，兼容冬令时)
-    private fun isUsTradingHours(): Boolean {
-        val hour = currentHour()
-        return hour >= 16 || hour < 5
     }
 
     fun refresh() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
-            loadDashboard()
+            loadAllTabs()
         }
     }
 
     fun refreshAll() {
-        val requestId = ++refreshRequestId
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             mutableUiState.update { it.copy(refreshing = true) }
             try {
                 coroutineScope {
-                    launch { loadDashboard() }
+                    launch { loadAllTabs() }
                     launch { loadGold() }
                 }
             } finally {
-                if (refreshRequestId == requestId) {
-                    mutableUiState.update { it.copy(refreshing = false) }
-                }
+                mutableUiState.update { it.copy(refreshing = false) }
             }
         }
+    }
+
+    fun selectTab(tab: StockTab) {
+        mutableUiState.update { it.copy(activeTab = tab) }
     }
 
     fun startGoldPolling() {
@@ -101,27 +91,31 @@ class StockDashboardViewModel(
         goldPollingJob = null
     }
 
-    private suspend fun loadDashboard() {
-        mutableUiState.update { it.copy(loading = it.dashboard == null, error = null) }
-        runCatching { dataSource.fetchDashboard() }
-            .onSuccess { dashboard ->
-                mutableUiState.update {
-                    it.copy(loading = false, error = null, dashboard = dashboard)
-                }
+    private suspend fun loadAllTabs() {
+        val hasData = mutableUiState.value.let {
+            it.gainers.isNotEmpty() || it.losers.isNotEmpty() || it.actives.isNotEmpty()
+        }
+        mutableUiState.update { it.copy(loading = !hasData, error = null) }
+        runCatching {
+            coroutineScope {
+                val g = async { dataSource.fetch(StockTab.Gainers) }
+                val l = async { dataSource.fetch(StockTab.Losers) }
+                val a = async { dataSource.fetch(StockTab.Actives) }
+                Triple(g.await(), l.await(), a.await())
             }
-            .onFailure { error ->
-                if (error is CancellationException) throw error
-                mutableUiState.update {
-                    it.copy(loading = false, error = error.userMessage())
-                }
+        }.onSuccess { (gainers, losers, actives) ->
+            mutableUiState.update {
+                it.copy(loading = false, error = null, gainers = gainers, losers = losers, actives = actives)
             }
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
+            mutableUiState.update { it.copy(loading = false, error = error.userMessage()) }
+        }
     }
 
     private suspend fun loadGold() {
         val source = goldDataSource ?: return
-        mutableUiState.update {
-            it.copy(goldLoading = it.goldQuote == null, goldError = null)
-        }
+        mutableUiState.update { it.copy(goldLoading = it.goldQuote == null, goldError = null) }
         runCatching { source.fetchLatest() }
             .onSuccess { quote ->
                 mutableUiState.update {
@@ -134,55 +128,6 @@ class StockDashboardViewModel(
                     it.copy(goldLoading = false, goldError = error.userMessage())
                 }
             }
-    }
-
-    fun selectFund(id: Int) {
-        mutableUiState.update { it.copy(selectedFundId = id) }
-        loadDetail(id)
-    }
-
-    fun retryDetail() {
-        mutableUiState.value.selectedFundId?.let(::loadDetail)
-    }
-
-    private fun loadDetail(id: Int) {
-        detailJob?.cancel()
-        detailJob = viewModelScope.launch {
-            mutableUiState.update {
-                it.copy(detailLoading = true, detailError = null, detail = null, expanded = false)
-            }
-            runCatching { dataSource.fetchDetail(id) }
-                .onSuccess { detail ->
-                    mutableUiState.update {
-                        // 丢弃过期响应：用户可能已切换或关闭了详情
-                        if (it.selectedFundId != id) return@update it
-                        it.copy(detailLoading = false, detailError = null, detail = detail)
-                    }
-                }
-                .onFailure { error ->
-                    if (error is CancellationException) throw error
-                    mutableUiState.update {
-                        if (it.selectedFundId != id) return@update it
-                        it.copy(detailLoading = false, detailError = error.userMessage())
-                    }
-                }
-        }
-    }
-
-    fun closeDetail() {
-        mutableUiState.update {
-            it.copy(
-                selectedFundId = null,
-                detailLoading = false,
-                detailError = null,
-                detail = null,
-                expanded = false
-            )
-        }
-    }
-
-    fun toggleExpanded() {
-        mutableUiState.update { it.copy(expanded = !it.expanded) }
     }
 }
 

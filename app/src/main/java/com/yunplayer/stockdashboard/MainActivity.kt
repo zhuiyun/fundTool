@@ -17,7 +17,7 @@ class MainActivity : ComponentActivity() {
     private val dashboardViewModel by viewModels<StockDashboardViewModel> {
         viewModelFactory {
             StockDashboardViewModel(
-                dataSource = StockRepository(),
+                dataSource = YahooHotStocksRepository(),
                 goldDataSource = GoldRepository()
             )
         }

@@ -1,5 +1,6 @@
 package com.yunplayer.stockdashboard
 
+/*
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 
@@ -91,3 +92,4 @@ class ApiPayloadParser(
         const val HOLDING_DELIMITER = "@@@"
     }
 }
+*/
