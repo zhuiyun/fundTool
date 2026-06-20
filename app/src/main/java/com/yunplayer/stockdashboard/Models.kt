@@ -73,3 +73,11 @@ enum class MainTab(val label: String) {
     HotStocks("热门美股"),
     Qdii("QDII基金"),
 }
+
+data class NasdaqQuote(
+    val price: Double,
+    val changePercent: Double,
+    val futuresChangePercent: Double?,
+    val marketState: String?,
+    val updatedAtMillis: Long,
+)

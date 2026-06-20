@@ -31,12 +31,15 @@ data class DashboardUiState(
     val qdiiError: String? = null,
     // The market state observed during the last QDII refresh (e.g. "PRE", "REGULAR")
     val qdiiMarketState: String? = null,
+    val nasdaqQuote: NasdaqQuote? = null,
+    val nasdaqLoading: Boolean = false,
 )
 
 class StockDashboardViewModel(
     private val dataSource: HotStocksSource,
     private val goldDataSource: GoldDataSource? = null,
     private val qdiiDataSource: QdiiFundRepository? = null,
+    private val indexDataSource: IndexRepository? = null,
     autoRefreshMillis: Long? = 60_000L,
     private val goldPollingMillis: Long = 1_000L,
 ) : ViewModel() {
@@ -63,7 +66,10 @@ class StockDashboardViewModel(
     fun refresh() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
-            loadAllTabs()
+            coroutineScope {
+                launch { loadAllTabs() }
+                launch { loadNasdaq() }
+            }
         }
     }
 
@@ -75,6 +81,7 @@ class StockDashboardViewModel(
                 coroutineScope {
                     launch { loadAllTabs() }
                     launch { loadGold() }
+                    launch { loadNasdaq() }
                     if (qdiiLoaded) launch { loadQdii() }
                 }
             } finally {
@@ -145,6 +152,19 @@ class StockDashboardViewModel(
                 mutableUiState.update {
                     it.copy(goldLoading = false, goldError = error.userMessage())
                 }
+            }
+    }
+
+    private suspend fun loadNasdaq() {
+        val source = indexDataSource ?: return
+        mutableUiState.update { it.copy(nasdaqLoading = it.nasdaqQuote == null) }
+        runCatching { source.fetchNasdaq() }
+            .onSuccess { quote ->
+                mutableUiState.update { it.copy(nasdaqLoading = false, nasdaqQuote = quote) }
+            }
+            .onFailure { error ->
+                if (error is CancellationException) throw error
+                mutableUiState.update { it.copy(nasdaqLoading = false) }
             }
     }
 

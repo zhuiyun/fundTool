@@ -4,6 +4,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -32,8 +33,17 @@ class QdiiFundRepository(
 
     suspend fun fetchHoldings(code: String): HoldingsResult = withContext(Dispatchers.IO) {
         runCatching {
-            val url = "$EASTMONEY_BASE?plat=Android&appType=ttjj&product=EFund" +
-                    "&Version=1&FCODE=$code&deviceid=wifimacMD5&Limit=10"
+            val url = EASTMONEY_DATACENTER_BASE.toHttpUrl().newBuilder()
+                .addQueryParameter("reportName", "RPT_F10_FUND_CCBDTA")
+                .addQueryParameter("columns", "SECURITY_CODE,SECURITY_NAME,DJZBL,PERIOD_DATE")
+                .addQueryParameter("filter", "(FUND_CODE=\"$code\")")
+                .addQueryParameter("pageSize", "10")
+                .addQueryParameter("sortTypes", "-1")
+                .addQueryParameter("sortColumns", "DJZBL")
+                .addQueryParameter("source", "F10")
+                .addQueryParameter("client", "PC")
+                .build()
+                .toString()
             val body = get(url)
             parseHoldings(body)
         }.getOrElse { e ->
@@ -85,19 +95,18 @@ class QdiiFundRepository(
     private fun parseHoldings(json: String): HoldingsResult {
         val root = mapAdapter.fromJson(json)
             ?: return HoldingsResult(emptyList(), null, "解析失败")
-        if ((root["ErrCode"] as? Number)?.toInt() != 0) {
-            return HoldingsResult(emptyList(), null, root["ErrMsg"]?.toString() ?: "接口错误")
-        }
-        val datas = root["Datas"] as? List<*>
+        val result = root["result"] as? Map<*, *>
+            ?: return HoldingsResult(emptyList(), null, root["message"]?.toString() ?: "接口错误")
+        val datas = result["data"] as? List<*>
             ?: return HoldingsResult(emptyList(), null, null)
-        val expansion = root["Expansion"] as? Map<*, *>
-        val date = expansion?.get("ShareDate")?.toString()
+        var date: String? = null
         val holdings = datas.mapNotNull { item ->
             val d = item as? Map<*, *> ?: return@mapNotNull null
-            val raw = d["GPDM"]?.toString() ?: return@mapNotNull null
+            val raw = d["SECURITY_CODE"]?.toString() ?: return@mapNotNull null
             val symbol = normalizeSymbol(raw) ?: return@mapNotNull null
-            val name = d["GPJC"]?.toString() ?: symbol
+            val name = d["SECURITY_NAME"]?.toString() ?: symbol
             val weight = d["DJZBL"]?.toString()?.toDoubleOrNull() ?: return@mapNotNull null
+            if (date == null) date = d["PERIOD_DATE"]?.toString()?.take(10)
             FundHolding(symbol = symbol, name = name, weight = weight)
         }
         return HoldingsResult(holdings, date, null)
@@ -152,8 +161,8 @@ class QdiiFundRepository(
     }
 
     companion object {
-        private const val EASTMONEY_BASE =
-            "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNShareholding"
+        private const val EASTMONEY_DATACENTER_BASE =
+            "https://datacenter.eastmoney.com/securities/api/data/v1/get"
         private const val YAHOO_QUOTE_BASE =
             "https://query1.finance.yahoo.com/v7/finance/quote"
 

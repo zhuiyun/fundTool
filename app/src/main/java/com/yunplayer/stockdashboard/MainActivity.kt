@@ -20,6 +20,7 @@ class MainActivity : ComponentActivity() {
                 dataSource = YahooHotStocksRepository(),
                 goldDataSource = GoldRepository(),
                 qdiiDataSource = QdiiFundRepository(),
+                indexDataSource = IndexRepository(),
             )
         }
     }

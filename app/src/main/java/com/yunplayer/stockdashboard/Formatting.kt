@@ -44,6 +44,9 @@ fun formatClockTime(
 fun formatPrice(value: Double): String =
     "$" + String.format(Locale.US, "%.2f", value)
 
+fun formatIndexPrice(value: Double): String =
+    String.format(Locale.US, "%,.0f", value)
+
 fun formatVolume(v: Long): String = when {
     v >= 1_000_000_000L -> String.format(Locale.US, "%.1fB", v / 1_000_000_000.0)
     v >= 1_000_000L -> String.format(Locale.US, "%.1fM", v / 1_000_000.0)

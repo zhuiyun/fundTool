@@ -229,7 +229,16 @@ private fun SharedHeader(
         // Main tab switcher
         MainTabBar(selected = state.mainTab, onSelect = onMainTabSelected)
 
-        // Gold strip (always visible when enabled)
+        // Nasdaq 100 strip (always visible)
+        if (state.nasdaqQuote != null || state.nasdaqLoading) {
+            Spacer(Modifier.height(10.dp))
+            NasdaqStrip(
+                quote = state.nasdaqQuote,
+                loading = state.nasdaqLoading,
+            )
+        }
+
+        // Gold strip (visible when enabled in settings)
         if (showGold) {
             Spacer(Modifier.height(10.dp))
             HeroGoldStrip(
@@ -319,6 +328,70 @@ private fun HotStocksContent(state: DashboardUiState, onTabSelected: (StockTab) 
             StockRow(stock = stock, modifier = Modifier.animateItem())
         }
         item { Spacer(Modifier.navigationBarsPadding()) }
+    }
+}
+
+@Composable
+private fun NasdaqStrip(quote: NasdaqQuote?, loading: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(end = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(HeroGlass)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            val stateLabel = when (quote?.marketState) {
+                "PRE", "PREPRE" -> "纳斯达克100 · 盘前"
+                "REGULAR" -> "纳斯达克100 · 盘中"
+                "POST" -> "纳斯达克100 · 盘后"
+                "CLOSED" -> "纳斯达克100 · 已收盘"
+                null -> if (loading) "纳斯达克100 · 获取中" else "纳斯达克100"
+                else -> "纳斯达克100"
+            }
+            Text(stateLabel, color = OnHeroMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                if (quote != null) formatIndexPrice(quote.price) else "--",
+                color = OnHero,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+        if (quote != null) {
+            Column(horizontalAlignment = Alignment.End) {
+                TrendPill(
+                    text = formatSignedPercent(quote.changePercent),
+                    value = quote.changePercent,
+                    fontSize = 12
+                )
+                if (quote.futuresChangePercent != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0x29FFFFFF))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            "期货 ${formatSignedPercent(quote.futuresChangePercent)}",
+                            color = trendColor(quote.futuresChangePercent),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+        } else if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = OnHero
+            )
+        }
     }
 }
 

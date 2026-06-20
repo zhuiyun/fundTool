@@ -56,7 +56,7 @@ class YahooHotStocksRepository(
             val price = (q["regularMarketPrice"] as? Number)?.toDouble() ?: return@mapNotNull null
             HotStock(
                 symbol = symbol,
-                name = q["shortName"]?.toString() ?: q["longName"]?.toString() ?: symbol,
+                name = STOCK_CN_NAMES[symbol] ?: q["shortName"]?.toString() ?: q["longName"]?.toString() ?: symbol,
                 price = price,
                 changePercent = (q["regularMarketChangePercent"] as? Number)?.toDouble() ?: 0.0,
                 changeAmount = (q["regularMarketChange"] as? Number)?.toDouble() ?: 0.0,
