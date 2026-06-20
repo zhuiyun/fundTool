@@ -175,44 +175,15 @@ class StockDashboardViewModel(
             mutableUiState.update { it.copy(qdiiLoading = true, qdiiError = null) }
             runCatching {
                 coroutineScope {
-                    // Fetch holdings for all funds in parallel
-                    val holdingsByFund = QdiiFundRepository.FUNDS.map { fund ->
-                        async { fund to repo.fetchHoldings(fund.code) }
-                    }.awaitAll()
-
-                    // Collect all unique symbols (plus USDCNY=X added by fetchQuotes itself)
-                    val allSymbols = holdingsByFund
-                        .flatMap { (_, r) -> r.holdings.map { it.symbol } }
-                        .distinct()
-
-                    // Single batch quote fetch (includes USDCNY=X automatically)
-                    val quotes = repo.fetchQuotes(allSymbols)
-
-                    // Detect market state from any quote (they share the same session)
-                    val marketState = quotes.values.firstOrNull()?.marketState
-
-                    // Build estimates and sort best→worst
-                    val estimates = holdingsByFund.map { (fund, result) ->
-                        QdiiEstimate(
-                            fund = fund,
-                            estimatedChangePercent = if (result.error == null)
-                                repo.estimateChange(result.holdings, quotes) else null,
-                            holdings = result.holdings,
-                            holdingsDate = result.date,
-                            error = result.error,
-                        )
-                    }.sortedByDescending { it.estimatedChangePercent ?: -Double.MAX_VALUE }
-
-                    estimates to marketState
+                    QdiiFundRepository.FUNDS
+                        .map { fund -> async { repo.fetchEstimate(fund) } }
+                        .awaitAll()
+                        .sortedByDescending { it.estimatedChangePercent ?: -Double.MAX_VALUE }
                 }
-            }.onSuccess { (estimates, state) ->
+            }.onSuccess { estimates ->
                 qdiiLoaded = true
                 mutableUiState.update {
-                    it.copy(
-                        qdiiLoading = false,
-                        qdiiEstimates = estimates,
-                        qdiiMarketState = state,
-                    )
+                    it.copy(qdiiLoading = false, qdiiEstimates = estimates, qdiiMarketState = null)
                 }
             }.onFailure { e ->
                 if (e is CancellationException) throw e

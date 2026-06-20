@@ -643,8 +643,10 @@ private fun QdiiFundRow(estimate: QdiiEstimate, modifier: Modifier = Modifier) {
                         )
                         val subtitle = when {
                             estimate.error != null -> estimate.error
-                            estimate.holdingsDate != null ->
+                            estimate.holdings.isNotEmpty() && estimate.holdingsDate != null ->
                                 "持仓 ${estimate.holdingsDate}  ·  ${estimate.holdings.size}只"
+                            estimate.holdingsDate != null ->
+                                "估算 ${estimate.holdingsDate}"
                             else -> null
                         }
                         if (subtitle != null) {

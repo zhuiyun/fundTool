@@ -1,28 +1,12 @@
 package com.yunplayer.stockdashboard
 
-import com.squareup.moshi.JsonReader
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okio.Buffer
 import java.util.concurrent.TimeUnit
-
-data class HoldingsResult(
-    val holdings: List<FundHolding>,
-    val date: String?,
-    val error: String?,
-)
-
-// Per-stock effective change given market state.
-// marketState: "PRE" | "REGULAR" | "POST" | "CLOSED" | "PREPRE" | null
-data class StockQuote(
-    val symbol: String,
-    val effectiveChangePercent: Double,
-    val marketState: String?,
-)
 
 class QdiiFundRepository(
     private val client: OkHttpClient = defaultClient,
@@ -32,119 +16,39 @@ class QdiiFundRepository(
         Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
     )
 
-    suspend fun fetchHoldings(code: String): HoldingsResult = withContext(Dispatchers.IO) {
+    // Uses Eastmoney's official real-time QDII estimated-NAV service.
+    // Response: jsonpgz({"fundcode":"160213","gszzl":"1.01","gztime":"2026-06-20 03:30:00",...})
+    // gszzl = 估算涨跌幅 (estimated change %)
+    // gztime = last estimation time
+    suspend fun fetchEstimate(fund: QdiiFundInfo): QdiiEstimate = withContext(Dispatchers.IO) {
         runCatching {
-            val url = "https://fundf10.eastmoney.com/FundArchivesDatas.aspx" +
-                "?type=jjcc&code=$code&page=1&sdate=&edate=&per=10"
-            val body = getF10(url)
-            parseHoldingsJsonp(body)
+            val body = get("https://fundgz.1234567.com.cn/js/${fund.code}.js")
+            parseEstimate(body, fund)
         }.getOrElse { e ->
-            HoldingsResult(emptyList(), null, e.message ?: "加载失败")
+            QdiiEstimate(fund = fund, estimatedChangePercent = null, error = e.message ?: "加载失败")
         }
     }
-
-    // Fetches quotes for the given symbols + USDCNY=X for FX adjustment.
-    // Returns a map of symbol -> StockQuote with the effective change percent
-    // selected based on current US market state:
-    //   PRE   -> preMarketChangePercent  (change from prev close, pre-market price)
-    //   POST  -> postMarketChangePercent (after-hours change, cumulative)
-    //   other -> regularMarketChangePercent
-    suspend fun fetchQuotes(symbols: List<String>): Map<String, StockQuote> =
-        withContext(Dispatchers.IO) {
-            if (symbols.isEmpty()) return@withContext emptyMap()
-            runCatching {
-                val all = (symbols + "USDCNY=X").distinct()
-                val url = "$YAHOO_QUOTE_BASE?symbols=${all.joinToString(",")}" +
-                        "&fields=regularMarketChangePercent,preMarketChangePercent," +
-                        "postMarketChangePercent,marketState"
-                val body = get(url)
-                parseQuoteMap(body)
-            }.getOrElse { emptyMap() }
-        }
-
-    // Weighted estimate in CNY terms:
-    //   estimated_change = Σ(weight_i/100 × stock_change_i) + usdcny_change
-    // The USD/CNY term accounts for exchange-rate drift since QDII NAVs are
-    // denominated in CNY but hold USD assets.
-    fun estimateChange(holdings: List<FundHolding>, quotes: Map<String, StockQuote>): Double? {
-        if (holdings.isEmpty()) return null
-        var sum = 0.0
-        var covered = 0.0
-        for (h in holdings) {
-            val q = quotes[h.symbol] ?: continue
-            sum += h.weight / 100.0 * q.effectiveChangePercent
-            covered += h.weight
-        }
-        if (covered <= 0) return null
-        // Add FX adjustment for USD/CNY
-        val fx = quotes["USDCNY=X"]?.effectiveChangePercent ?: 0.0
-        return sum + fx
-    }
-
-    // ── Parsing ───────────────────────────────────────────────────────────────
 
     @Suppress("UNCHECKED_CAST")
-    private fun parseHoldingsJsonp(jsonp: String): HoldingsResult {
-        // Response is JSONP: "var apidata={ ... };"
-        // The content field contains raw HTML with unescaped characters, so
-        // lenient mode is required to tolerate the malformed JSON string.
+    private fun parseEstimate(jsonp: String, fund: QdiiFundInfo): QdiiEstimate {
+        // Strip JSONP wrapper: "jsonpgz({...})" or "jsonpgz({...});"
         val json = jsonp.trim()
-            .replace(Regex("^var\\s+apidata\\s*=\\s*"), "")
-            .trimEnd(';', ' ', '\n', '\r')
-        val reader = JsonReader.of(Buffer().writeUtf8(json)).apply { isLenient = true }
-        val root = mapAdapter.fromJson(reader)
-            ?: return HoldingsResult(emptyList(), null, "解析失败")
-        val arryList = root["arryList"] as? List<*>
-            ?: return HoldingsResult(emptyList(), null, null)
-        var date: String? = null
-        val holdings = arryList.mapNotNull { item ->
-            val d = item as? Map<*, *> ?: return@mapNotNull null
-            val raw = d["gpdm"]?.toString() ?: return@mapNotNull null
-            val symbol = normalizeSymbol(raw) ?: return@mapNotNull null
-            val name = d["gpjc"]?.toString() ?: symbol
-            // jzbl may come as "10.36" or "10.36%" — strip % if present
-            val weight = d["jzbl"]?.toString()?.trimEnd('%')?.toDoubleOrNull()
-                ?: return@mapNotNull null
-            if (date == null) date = d["dateStr"]?.toString()?.replace("/", "-")
-            FundHolding(symbol = symbol, name = name, weight = weight)
-        }
-        return HoldingsResult(holdings, date, null)
+            .replace(Regex("^jsonpgz\\("), "")
+            .trimEnd(')', ';', ' ', '\n', '\r')
+        val root = mapAdapter.fromJson(json)
+            ?: return QdiiEstimate(fund, null, "解析失败")
+        val changeStr = root["gszzl"]?.toString()
+            ?: return QdiiEstimate(fund, null, null)
+        val change = changeStr.toDoubleOrNull()
+            ?: return QdiiEstimate(fund, null, null)
+        val gztime = root["gztime"]?.toString()
+        return QdiiEstimate(
+            fund = fund,
+            estimatedChangePercent = change,
+            holdingsDate = gztime,
+        )
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun parseQuoteMap(json: String): Map<String, StockQuote> {
-        val root = mapAdapter.fromJson(json) ?: return emptyMap()
-        val response = root["quoteResponse"] as? Map<*, *> ?: return emptyMap()
-        val result = response["result"] as? List<*> ?: return emptyMap()
-        return buildMap {
-            for (item in result) {
-                val q = item as? Map<*, *> ?: continue
-                val symbol = q["symbol"]?.toString() ?: continue
-                val regular = (q["regularMarketChangePercent"] as? Number)?.toDouble() ?: continue
-                val preMarket = (q["preMarketChangePercent"] as? Number)?.toDouble()
-                val postMarket = (q["postMarketChangePercent"] as? Number)?.toDouble()
-                val state = q["marketState"]?.toString()
-                val effective = when (state) {
-                    "PRE", "PREPRE" -> preMarket ?: regular
-                    "POST" -> postMarket?.let { regular + it } ?: regular
-                    else -> regular
-                }
-                put(symbol, StockQuote(symbol, effective, state))
-            }
-        }
-    }
-
-    // Normalises Eastmoney stock codes to Yahoo Finance symbols.
-    // "106.AAPL" -> "AAPL", "128.00700" -> "00700.HK", "00700" -> "00700.HK"
-    private fun normalizeSymbol(raw: String): String? {
-        val clean = if (raw.contains('.') && raw.substringBefore('.').all { it.isDigit() }) {
-            raw.substringAfter('.')
-        } else raw
-        if (clean.isBlank()) return null
-        return if (clean.all { it.isDigit() }) clean.padStart(5, '0') + ".HK" else clean.uppercase()
-    }
-
-    // For Yahoo Finance quote API
     private fun get(url: String): String {
         val request = Request.Builder()
             .url(url)
@@ -152,21 +56,8 @@ class QdiiFundRepository(
                 "User-Agent",
                 "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
             )
-            .header("Accept", "application/json")
-            .build()
-        client.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) error("HTTP ${resp.code}")
-            return resp.body?.string().orEmpty()
-        }
-    }
-
-    // For Eastmoney F10 JSONP endpoint (needs Referer)
-    private fun getF10(url: String): String {
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .header("Accept", "application/json, text/javascript, */*")
-            .header("Referer", "https://fundf10.eastmoney.com/")
+            .header("Accept", "*/*")
+            .header("Referer", "https://fund.eastmoney.com/")
             .build()
         client.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) error("HTTP ${resp.code}")
@@ -175,9 +66,6 @@ class QdiiFundRepository(
     }
 
     companion object {
-        private const val YAHOO_QUOTE_BASE =
-            "https://query1.finance.yahoo.com/v7/finance/quote"
-
         val FUNDS = listOf(
             QdiiFundInfo("160213", "华宝纳斯达克精选"),
             QdiiFundInfo("006697", "浦银安盛全球智能科技"),
@@ -204,7 +92,7 @@ class QdiiFundRepository(
 
         private val defaultClient: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
             .build()
     }
 }
