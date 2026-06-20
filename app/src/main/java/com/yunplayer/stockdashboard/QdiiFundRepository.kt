@@ -4,7 +4,6 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -33,19 +32,10 @@ class QdiiFundRepository(
 
     suspend fun fetchHoldings(code: String): HoldingsResult = withContext(Dispatchers.IO) {
         runCatching {
-            val url = EASTMONEY_DATACENTER_BASE.toHttpUrl().newBuilder()
-                .addQueryParameter("reportName", "RPT_F10_FUND_CCBDTA")
-                .addQueryParameter("columns", "SECURITY_CODE,SECURITY_NAME,DJZBL,PERIOD_DATE")
-                .addQueryParameter("filter", "(FUND_CODE=\"$code\")")
-                .addQueryParameter("pageSize", "10")
-                .addQueryParameter("sortTypes", "-1")
-                .addQueryParameter("sortColumns", "DJZBL")
-                .addQueryParameter("source", "F10")
-                .addQueryParameter("client", "PC")
-                .build()
-                .toString()
-            val body = get(url)
-            parseHoldings(body)
+            val url = "https://fundf10.eastmoney.com/FundArchivesDatas.aspx" +
+                "?type=jjcc&code=$code&page=1&sdate=&edate=&per=10"
+            val body = getF10(url)
+            parseHoldingsJsonp(body)
         }.getOrElse { e ->
             HoldingsResult(emptyList(), null, e.message ?: "加载失败")
         }
@@ -92,21 +82,21 @@ class QdiiFundRepository(
     // ── Parsing ───────────────────────────────────────────────────────────────
 
     @Suppress("UNCHECKED_CAST")
-    private fun parseHoldings(json: String): HoldingsResult {
+    private fun parseHoldingsJsonp(jsonp: String): HoldingsResult {
+        // Response is JSONP: "var apidata={ ... };"
+        val json = jsonp.substringAfter("var apidata=").trimEnd(';', ' ', '\n', '\r')
         val root = mapAdapter.fromJson(json)
             ?: return HoldingsResult(emptyList(), null, "解析失败")
-        val result = root["result"] as? Map<*, *>
-            ?: return HoldingsResult(emptyList(), null, root["message"]?.toString() ?: "接口错误")
-        val datas = result["data"] as? List<*>
+        val arryList = root["arryList"] as? List<*>
             ?: return HoldingsResult(emptyList(), null, null)
         var date: String? = null
-        val holdings = datas.mapNotNull { item ->
+        val holdings = arryList.mapNotNull { item ->
             val d = item as? Map<*, *> ?: return@mapNotNull null
-            val raw = d["SECURITY_CODE"]?.toString() ?: return@mapNotNull null
+            val raw = d["gpdm"]?.toString() ?: return@mapNotNull null
             val symbol = normalizeSymbol(raw) ?: return@mapNotNull null
-            val name = d["SECURITY_NAME"]?.toString() ?: symbol
-            val weight = d["DJZBL"]?.toString()?.toDoubleOrNull() ?: return@mapNotNull null
-            if (date == null) date = d["PERIOD_DATE"]?.toString()?.take(10)
+            val name = d["gpjc"]?.toString() ?: symbol
+            val weight = d["jzbl"]?.toString()?.toDoubleOrNull() ?: return@mapNotNull null
+            if (date == null) date = d["dateStr"]?.toString()?.replace("/", "-")
             FundHolding(symbol = symbol, name = name, weight = weight)
         }
         return HoldingsResult(holdings, date, null)
@@ -145,6 +135,7 @@ class QdiiFundRepository(
         return if (clean.all { it.isDigit() }) clean.padStart(5, '0') + ".HK" else clean.uppercase()
     }
 
+    // For Yahoo Finance quote API
     private fun get(url: String): String {
         val request = Request.Builder()
             .url(url)
@@ -160,9 +151,21 @@ class QdiiFundRepository(
         }
     }
 
+    // For Eastmoney F10 JSONP endpoint (needs Referer)
+    private fun getF10(url: String): String {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .header("Accept", "application/json, text/javascript, */*")
+            .header("Referer", "https://fundf10.eastmoney.com/")
+            .build()
+        client.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) error("HTTP ${resp.code}")
+            return resp.body?.string().orEmpty()
+        }
+    }
+
     companion object {
-        private const val EASTMONEY_DATACENTER_BASE =
-            "https://datacenter.eastmoney.com/securities/api/data/v1/get"
         private const val YAHOO_QUOTE_BASE =
             "https://query1.finance.yahoo.com/v7/finance/quote"
 
