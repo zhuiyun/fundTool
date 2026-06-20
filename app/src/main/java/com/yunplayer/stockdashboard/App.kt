@@ -170,6 +170,7 @@ fun StockDashboardApp(
             },
             onRefresh = dashboardViewModel::refreshAll,
             onTabSelected = dashboardViewModel::selectTab,
+            onMainTabSelected = dashboardViewModel::selectMainTab,
         )
     }
 }

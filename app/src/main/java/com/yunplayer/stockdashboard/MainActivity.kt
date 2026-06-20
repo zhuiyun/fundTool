@@ -18,7 +18,8 @@ class MainActivity : ComponentActivity() {
         viewModelFactory {
             StockDashboardViewModel(
                 dataSource = YahooHotStocksRepository(),
-                goldDataSource = GoldRepository()
+                goldDataSource = GoldRepository(),
+                qdiiDataSource = QdiiFundRepository(),
             )
         }
     }

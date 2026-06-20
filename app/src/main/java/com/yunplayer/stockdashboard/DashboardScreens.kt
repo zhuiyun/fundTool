@@ -53,7 +53,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -80,15 +79,14 @@ fun DashboardRoute(
     onShowLiveUpdateChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     onTabSelected: (StockTab) -> Unit,
+    onMainTabSelected: (MainTab) -> Unit,
 ) {
     when {
-        state.loading -> LoadingScreen("获取热门美股")
-        state.error != null && state.gainers.isEmpty() -> ErrorScreen(
-            title = "加载失败",
-            message = state.error,
-            onRetry = onRefresh
-        )
-        else -> HotStocksScreen(
+        state.loading && state.gainers.isEmpty() && state.mainTab == MainTab.HotStocks ->
+            LoadingScreen("获取热门美股")
+        state.error != null && state.gainers.isEmpty() && state.mainTab == MainTab.HotStocks ->
+            ErrorScreen(title = "加载失败", message = state.error, onRetry = onRefresh)
+        else -> MainScreen(
             state = state,
             themeMode = themeMode,
             onThemeModeSelected = onThemeModeSelected,
@@ -104,13 +102,14 @@ fun DashboardRoute(
             onShowLiveUpdateChange = onShowLiveUpdateChange,
             onRefresh = onRefresh,
             onTabSelected = onTabSelected,
+            onMainTabSelected = onMainTabSelected,
         )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HotStocksScreen(
+private fun MainScreen(
     state: DashboardUiState,
     themeMode: ThemeMode,
     onThemeModeSelected: (ThemeMode) -> Unit,
@@ -126,20 +125,13 @@ private fun HotStocksScreen(
     onShowLiveUpdateChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     onTabSelected: (StockTab) -> Unit,
+    onMainTabSelected: (MainTab) -> Unit,
 ) {
-    val stocks = when (state.activeTab) {
-        StockTab.Gainers -> state.gainers
-        StockTab.Losers -> state.losers
-        StockTab.Actives -> state.actives
-    }
-
     Scaffold(
         containerColor = AppBackground,
         topBar = {
-            HotStocksHeader(
-                goldQuote = state.goldQuote,
-                goldLoading = state.goldLoading,
-                goldError = state.goldError,
+            SharedHeader(
+                state = state,
                 showGold = showGold,
                 themeMode = themeMode,
                 onThemeModeSelected = onThemeModeSelected,
@@ -153,6 +145,7 @@ private fun HotStocksScreen(
                 showLiveUpdate = showLiveUpdate,
                 onShowLiveUpdateChange = onShowLiveUpdateChange,
                 onRefresh = onRefresh,
+                onMainTabSelected = onMainTabSelected,
             )
         }
     ) { padding ->
@@ -163,45 +156,19 @@ private fun HotStocksScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 16.dp, end = 16.dp, top = 12.dp, bottom = 0.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item {
-                    StockTabBar(
-                        selected = state.activeTab,
-                        onSelect = onTabSelected,
-                    )
-                }
-                if (state.error != null) {
-                    item {
-                        Text(
-                            state.error,
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .animateContentSize()
-                                .padding(horizontal = 2.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-                items(stocks, key = { it.symbol }) { stock ->
-                    StockRow(stock = stock, modifier = Modifier.animateItem())
-                }
-                item { Spacer(Modifier.navigationBarsPadding()) }
+            when (state.mainTab) {
+                MainTab.HotStocks -> HotStocksContent(state, onTabSelected)
+                MainTab.Qdii -> QdiiFundContent(state)
             }
         }
     }
 }
 
+// ── Shared header ─────────────────────────────────────────────────────────────
+
 @Composable
-private fun HotStocksHeader(
-    goldQuote: GoldQuote?,
-    goldLoading: Boolean,
-    goldError: String?,
+private fun SharedHeader(
+    state: DashboardUiState,
     showGold: Boolean,
     themeMode: ThemeMode,
     onThemeModeSelected: (ThemeMode) -> Unit,
@@ -215,6 +182,7 @@ private fun HotStocksHeader(
     showLiveUpdate: Boolean,
     onShowLiveUpdateChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
+    onMainTabSelected: (MainTab) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -223,10 +191,14 @@ private fun HotStocksHeader(
             .statusBarsPadding()
             .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 16.dp)
     ) {
+        // Title row + controls
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "热门美股",
+                    when (state.mainTab) {
+                        MainTab.HotStocks -> "热门美股"
+                        MainTab.Qdii -> "QDII基金估算"
+                    },
                     color = OnHero,
                     fontSize = 19.sp,
                     fontWeight = FontWeight.SemiBold
@@ -251,10 +223,102 @@ private fun HotStocksHeader(
                 Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = OnHero)
             }
         }
+
+        Spacer(Modifier.height(10.dp))
+
+        // Main tab switcher
+        MainTabBar(selected = state.mainTab, onSelect = onMainTabSelected)
+
+        // Gold strip (always visible when enabled)
         if (showGold) {
-            Spacer(Modifier.height(12.dp))
-            HeroGoldStrip(quote = goldQuote, loading = goldLoading, error = goldError)
+            Spacer(Modifier.height(10.dp))
+            HeroGoldStrip(
+                quote = state.goldQuote,
+                loading = state.goldLoading,
+                error = state.goldError
+            )
         }
+
+        // Market state hint on QDII tab
+        if (state.mainTab == MainTab.Qdii && state.qdiiMarketState != null) {
+            Spacer(Modifier.height(6.dp))
+            val stateLabel = when (state.qdiiMarketState) {
+                "PRE", "PREPRE" -> "盘前价格 · 含汇率调整"
+                "REGULAR" -> "盘中价格 · 实时估算 · 含汇率调整"
+                "POST" -> "盘后价格 · 含汇率调整"
+                "CLOSED" -> "收盘价格 · 含汇率调整"
+                else -> "含汇率调整"
+            }
+            Text(stateLabel, color = OnHeroMuted, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun MainTabBar(selected: MainTab, onSelect: (MainTab) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(50))
+            .background(Color(0x29FFFFFF))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        MainTab.entries.forEach { tab ->
+            val active = tab == selected
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .then(if (active) Modifier.background(Color.White.copy(alpha = 0.25f)) else Modifier)
+                    .clickable { onSelect(tab) }
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    tab.label,
+                    color = if (active) OnHero else OnHeroMuted,
+                    fontSize = 13.sp,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
+    }
+}
+
+// ── Hot stocks content ────────────────────────────────────────────────────────
+
+@Composable
+private fun HotStocksContent(state: DashboardUiState, onTabSelected: (StockTab) -> Unit) {
+    val stocks = when (state.activeTab) {
+        StockTab.Gainers -> state.gainers
+        StockTab.Losers -> state.losers
+        StockTab.Actives -> state.actives
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 0.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            StockTabBar(selected = state.activeTab, onSelect = onTabSelected)
+        }
+        if (state.error != null) {
+            item {
+                Text(
+                    state.error,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .animateContentSize()
+                        .padding(horizontal = 2.dp, vertical = 4.dp)
+                )
+            }
+        }
+        items(stocks, key = { it.symbol }) { stock ->
+            StockRow(stock = stock, modifier = Modifier.animateItem())
+        }
+        item { Spacer(Modifier.navigationBarsPadding()) }
     }
 }
 
@@ -351,7 +415,7 @@ private fun StockRow(stock: HotStock, modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Row(modifier = Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
             Box(
                 modifier = Modifier
                     .width(4.dp)
@@ -427,6 +491,132 @@ private fun StockRow(stock: HotStock, modifier: Modifier = Modifier) {
         }
     }
 }
+
+// ── QDII fund content ─────────────────────────────────────────────────────────
+
+@Composable
+private fun QdiiFundContent(state: DashboardUiState) {
+    when {
+        state.qdiiLoading && state.qdiiEstimates.isEmpty() -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("正在加载持仓数据", color = TextSecondary, fontSize = 13.sp)
+                }
+            }
+        }
+        state.qdiiError != null && state.qdiiEstimates.isEmpty() -> {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(state.qdiiError, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+            }
+        }
+        else -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 0.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (state.qdiiError != null) {
+                    item {
+                        Text(
+                            state.qdiiError,
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                items(state.qdiiEstimates, key = { it.fund.code }) { estimate ->
+                    QdiiFundRow(estimate = estimate, modifier = Modifier.animateItem())
+                }
+                item { Spacer(Modifier.navigationBarsPadding()) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QdiiFundRow(estimate: QdiiEstimate, modifier: Modifier = Modifier) {
+    val change = estimate.estimatedChangePercent
+    val gradientColors = if (change != null) trendGradientColors(change)
+    else listOf(TrendFlat, TrendFlat)
+
+    CardSurface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(Brush.verticalGradient(gradientColors))
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            estimate.fund.name,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val subtitle = when {
+                            estimate.error != null -> estimate.error
+                            estimate.holdingsDate != null ->
+                                "持仓 ${estimate.holdingsDate}  ·  ${estimate.holdings.size}只"
+                            else -> null
+                        }
+                        if (subtitle != null) {
+                            Text(
+                                subtitle,
+                                color = if (estimate.error != null) MaterialTheme.colorScheme.error
+                                else TextSecondary,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    when {
+                        change != null -> TrendPill(
+                            text = formatSignedPercent(change),
+                            value = change,
+                            fontSize = 14
+                        )
+                        else -> Text(
+                            "--",
+                            color = TextSecondary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+                // Top-5 holding tickers
+                if (estimate.holdings.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        estimate.holdings.take(5).joinToString("  ") { it.symbol },
+                        color = TextSecondary,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Settings menu ─────────────────────────────────────────────────────────────
 
 @Composable
 private fun SettingsMenu(
@@ -518,6 +708,8 @@ private fun SettingsMenu(
         }
     }
 }
+
+// ── Shared composables ────────────────────────────────────────────────────────
 
 @Composable
 internal fun GradientTopBar(title: String, onBack: (() -> Unit)? = null) {

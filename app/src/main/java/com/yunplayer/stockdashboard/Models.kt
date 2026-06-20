@@ -52,3 +52,24 @@ enum class StockTab(val label: String) {
     Losers("跌幅榜"),
     Actives("活跃榜"),
 }
+
+data class FundHolding(
+    val symbol: String,
+    val name: String,
+    val weight: Double,  // e.g. 10.36 means 10.36%
+)
+
+data class QdiiFundInfo(val code: String, val name: String)
+
+data class QdiiEstimate(
+    val fund: QdiiFundInfo,
+    val estimatedChangePercent: Double?,
+    val holdings: List<FundHolding> = emptyList(),
+    val holdingsDate: String? = null,
+    val error: String? = null,
+)
+
+enum class MainTab(val label: String) {
+    HotStocks("热门美股"),
+    Qdii("QDII基金"),
+}
