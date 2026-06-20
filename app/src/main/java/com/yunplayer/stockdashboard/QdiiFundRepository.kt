@@ -89,10 +89,8 @@ class QdiiFundRepository(
         // The content field contains raw HTML with unescaped characters, so
         // lenient mode is required to tolerate the malformed JSON string.
         val json = jsonp.trim()
-            .removePrefix("var apidata=")
-            .trim()
-            .removeSuffix(";")
-            .trim()
+            .replace(Regex("^var\\s+apidata\\s*=\\s*"), "")
+            .trimEnd(';', ' ', '\n', '\r')
         val reader = JsonReader.of(Buffer().writeUtf8(json)).apply { isLenient = true }
         val root = mapAdapter.fromJson(reader)
             ?: return HoldingsResult(emptyList(), null, "解析失败")
@@ -104,7 +102,9 @@ class QdiiFundRepository(
             val raw = d["gpdm"]?.toString() ?: return@mapNotNull null
             val symbol = normalizeSymbol(raw) ?: return@mapNotNull null
             val name = d["gpjc"]?.toString() ?: symbol
-            val weight = d["jzbl"]?.toString()?.toDoubleOrNull() ?: return@mapNotNull null
+            // jzbl may come as "10.36" or "10.36%" — strip % if present
+            val weight = d["jzbl"]?.toString()?.trimEnd('%')?.toDoubleOrNull()
+                ?: return@mapNotNull null
             if (date == null) date = d["dateStr"]?.toString()?.replace("/", "-")
             FundHolding(symbol = symbol, name = name, weight = weight)
         }
