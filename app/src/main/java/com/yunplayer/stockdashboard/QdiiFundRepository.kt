@@ -1,11 +1,13 @@
 package com.yunplayer.stockdashboard
 
+import com.squareup.moshi.JsonReader
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okio.Buffer
 import java.util.concurrent.TimeUnit
 
 data class HoldingsResult(
@@ -84,8 +86,15 @@ class QdiiFundRepository(
     @Suppress("UNCHECKED_CAST")
     private fun parseHoldingsJsonp(jsonp: String): HoldingsResult {
         // Response is JSONP: "var apidata={ ... };"
-        val json = jsonp.substringAfter("var apidata=").trimEnd(';', ' ', '\n', '\r')
-        val root = mapAdapter.fromJson(json)
+        // The content field contains raw HTML with unescaped characters, so
+        // lenient mode is required to tolerate the malformed JSON string.
+        val json = jsonp.trim()
+            .removePrefix("var apidata=")
+            .trim()
+            .removeSuffix(";")
+            .trim()
+        val reader = JsonReader.of(Buffer().writeUtf8(json)).apply { isLenient = true }
+        val root = mapAdapter.fromJson(reader)
             ?: return HoldingsResult(emptyList(), null, "解析失败")
         val arryList = root["arryList"] as? List<*>
             ?: return HoldingsResult(emptyList(), null, null)
