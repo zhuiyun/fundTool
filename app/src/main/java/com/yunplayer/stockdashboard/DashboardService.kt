@@ -39,6 +39,7 @@ class DashboardService : Service() {
 
     // private var lastDashboard: Dashboard? = null
     private var lastGold: GoldQuote? = null
+    private var lastNasdaq: NasdaqQuote? = null
 
     companion object {
         private val _floatRunning = MutableStateFlow(false)
@@ -97,6 +98,11 @@ class DashboardService : Service() {
                     withContext(Dispatchers.IO) { GoldRepository().fetchLatest() }
                 }.getOrNull()
                 if (gold != null) lastGold = gold
+
+                val nasdaq = runCatching {
+                    withContext(Dispatchers.IO) { IndexRepository().fetchNasdaq() }
+                }.getOrNull()
+                if (nasdaq != null) lastNasdaq = nasdaq
 
                 val p = readPrefs()
                 applyFloatState(p)
@@ -186,10 +192,30 @@ class DashboardService : Service() {
     private fun updateFloatContent(p: Prefs) {
         val v = floatView ?: return
         val gold = lastGold
+        val nasdaq = lastNasdaq
 
-        // Nasdaq rows hidden (no longer fetching index data)
-        v.findViewById<View>(R.id.float_nasdaq_row).visibility = View.GONE
-        v.findViewById<View>(R.id.float_nasdaq100_row).visibility = View.GONE
+        val nasdaq100Row = v.findViewById<View>(R.id.float_nasdaq100_row)
+        if (nasdaq != null) {
+            nasdaq100Row.visibility = View.VISIBLE
+            v.findViewById<TextView>(R.id.float_nasdaq100_value).apply {
+                text = "${formatIndexPrice(nasdaq.price)}  ${formatSignedPercent(nasdaq.changePercent)}"
+                setTextColor(floatTrendColor(nasdaq.changePercent))
+            }
+        } else {
+            nasdaq100Row.visibility = View.GONE
+        }
+
+        val nasdaqRow = v.findViewById<View>(R.id.float_nasdaq_row)
+        val futures = nasdaq?.futuresChangePercent
+        if (futures != null) {
+            nasdaqRow.visibility = View.VISIBLE
+            v.findViewById<TextView>(R.id.float_nasdaq_value).apply {
+                text = "期货 ${formatSignedPercent(futures)}"
+                setTextColor(floatTrendColor(futures))
+            }
+        } else {
+            nasdaqRow.visibility = View.GONE
+        }
 
         val goldRow = v.findViewById<View>(R.id.float_gold_row)
         if (p.showGold && gold != null) {
@@ -200,8 +226,13 @@ class DashboardService : Service() {
             goldRow.visibility = View.GONE
         }
 
-        // Funds row hidden (no longer fetching fund data)
         v.findViewById<View>(R.id.float_funds_row).visibility = View.GONE
+    }
+
+    private fun floatTrendColor(value: Double): Int = when {
+        value > 0 -> 0xFF66BB6A.toInt()
+        value < 0 -> 0xFFEF5350.toInt()
+        else -> 0xFFAAAAAA.toInt()
     }
 
     // ── Notification ──────────────────────────────────────────────────────────
@@ -219,9 +250,13 @@ class DashboardService : Service() {
         )
 
         val showRich = p.showNotification || p.showLiveUpdate
+        val nasdaq = lastNasdaq
 
         val chipParts = buildList {
-            if (showRich && p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
+            if (showRich) {
+                if (nasdaq != null) add("纳指 ${formatSignedPercent(nasdaq.changePercent)}")
+                if (p.showGold && gold != null) add("金 ${formatGoldPrice(gold.price)}")
+            }
         }
         val chipTitle = chipParts.joinToString("  ·  ").ifEmpty { "热门美股" }
 
@@ -239,6 +274,19 @@ class DashboardService : Service() {
         }
 
         val inboxStyle = Notification.InboxStyle()
+        if (nasdaq != null) {
+            val stateLabel = when (nasdaq.marketState) {
+                "PRE", "PREPRE" -> "盘前"
+                "POST" -> "盘后"
+                "REGULAR" -> "盘中"
+                else -> ""
+            }
+            val label = if (stateLabel.isNotEmpty()) "纳斯达克100 $stateLabel" else "纳斯达克100"
+            inboxStyle.addLine("$label   ${formatIndexPrice(nasdaq.price)}  ${formatSignedPercent(nasdaq.changePercent)}")
+            if (nasdaq.futuresChangePercent != null) {
+                inboxStyle.addLine("NQ期货   ${formatSignedPercent(nasdaq.futuresChangePercent)}")
+            }
+        }
         if (p.showGold && gold != null) {
             inboxStyle.addLine("现货黄金   ${formatGoldPrice(gold.price)}  ${formatSignedNumber(gold.changeAmount)}")
         }
