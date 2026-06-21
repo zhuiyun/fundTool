@@ -229,14 +229,12 @@ private fun SharedHeader(
         // Main tab switcher
         MainTabBar(selected = state.mainTab, onSelect = onMainTabSelected)
 
-        // Nasdaq 100 strip (always visible)
-        if (state.nasdaqQuote != null || state.nasdaqLoading) {
-            Spacer(Modifier.height(10.dp))
-            NasdaqStrip(
-                quote = state.nasdaqQuote,
-                loading = state.nasdaqLoading,
-            )
-        }
+        // Nasdaq 100 strip
+        Spacer(Modifier.height(10.dp))
+        NasdaqStrip(
+            quote = state.nasdaqQuote,
+            loading = state.nasdaqLoading,
+        )
 
         // Gold strip (visible when enabled in settings)
         if (showGold) {

@@ -3,8 +3,9 @@ package com.yunplayer.stockdashboard
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -19,66 +20,51 @@ class IndexRepository(
 
     suspend fun fetchNasdaq(): NasdaqQuote? = withContext(Dispatchers.IO) {
         runCatching {
-            val url = "https://query1.finance.yahoo.com/v7/finance/quote"
-                .toHttpUrl()
-                .newBuilder()
-                .addQueryParameter("symbols", "^NDX,NQ=F")
-                .addQueryParameter(
-                    "fields",
-                    "regularMarketPrice,regularMarketChangePercent," +
-                        "preMarketChangePercent,postMarketChangePercent,marketState"
-                )
-                .build()
-                .toString()
-            val body = get(url)
-            parseNasdaq(body)
+            coroutineScope {
+                val ndx = async { fetchChartMeta("^NDX") }
+                val nq = async { fetchChartMeta("NQ=F") }
+                buildNasdaqQuote(ndx.await(), nq.await())
+            }
         }.getOrNull()
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun parseNasdaq(json: String): NasdaqQuote? {
-        val root = mapAdapter.fromJson(json) ?: return null
-        val response = root["quoteResponse"] as? Map<*, *> ?: return null
-        val result = response["result"] as? List<*> ?: return null
+    private fun buildNasdaqQuote(ndxMeta: Map<*, *>?, nqMeta: Map<*, *>?): NasdaqQuote? {
+        ndxMeta ?: return null
+        val price = (ndxMeta["regularMarketPrice"] as? Number)?.toDouble() ?: return null
+        val prevClose = (ndxMeta["previousClose"] as? Number)?.toDouble()
+            ?: (ndxMeta["chartPreviousClose"] as? Number)?.toDouble()
+            ?: return null
+        val changePercent = (price - prevClose) / prevClose * 100.0
+        val marketState = ndxMeta["marketState"]?.toString()
 
-        var ndxPrice: Double? = null
-        var ndxChangePercent: Double? = null
-        var nqFuturesChangePercent: Double? = null
-        var marketState: String? = null
-
-        for (item in result) {
-            val q = item as? Map<*, *> ?: continue
-            val sym = q["symbol"]?.toString() ?: continue
-            val regular = (q["regularMarketChangePercent"] as? Number)?.toDouble()
-            val pre = (q["preMarketChangePercent"] as? Number)?.toDouble()
-            val post = (q["postMarketChangePercent"] as? Number)?.toDouble()
-            val state = q["marketState"]?.toString()
-
-            when (sym) {
-                "^NDX" -> {
-                    ndxPrice = (q["regularMarketPrice"] as? Number)?.toDouble()
-                    ndxChangePercent = regular
-                    marketState = state
-                }
-                "NQ=F" -> {
-                    nqFuturesChangePercent = when (state) {
-                        "PRE", "PREPRE" -> pre ?: regular
-                        "POST" -> post?.let { (regular ?: 0.0) + it } ?: regular
-                        else -> regular
-                    }
-                }
-            }
+        val futuresChangePercent = nqMeta?.let { meta ->
+            val nqPrice = (meta["regularMarketPrice"] as? Number)?.toDouble()
+            val nqPrevClose = (meta["previousClose"] as? Number)?.toDouble()
+                ?: (meta["chartPreviousClose"] as? Number)?.toDouble()
+            if (nqPrice != null && nqPrevClose != null && nqPrevClose != 0.0) {
+                (nqPrice - nqPrevClose) / nqPrevClose * 100.0
+            } else null
         }
 
-        val price = ndxPrice ?: return null
-        val change = ndxChangePercent ?: return null
         return NasdaqQuote(
             price = price,
-            changePercent = change,
-            futuresChangePercent = nqFuturesChangePercent,
+            changePercent = changePercent,
+            futuresChangePercent = futuresChangePercent,
             marketState = marketState,
             updatedAtMillis = System.currentTimeMillis(),
         )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun fetchChartMeta(symbol: String): Map<*, *>? {
+        val encoded = symbol.replace("^", "%5E").replace("=", "%3D")
+        val url = "https://query1.finance.yahoo.com/v8/finance/chart/$encoded" +
+            "?interval=1d&range=1d&includePrePost=true"
+        val body = get(url)
+        val root = mapAdapter.fromJson(body) ?: return null
+        val chart = root["chart"] as? Map<*, *> ?: return null
+        val result = (chart["result"] as? List<*>)?.firstOrNull() as? Map<*, *> ?: return null
+        return result["meta"] as? Map<*, *>
     }
 
     private fun get(url: String): String {
