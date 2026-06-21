@@ -36,11 +36,11 @@ class QdiiFundRepository(
             .replace(Regex("^jsonpgz\\("), "")
             .trimEnd(')', ';', ' ', '\n', '\r')
         val root = mapAdapter.fromJson(json)
-            ?: return QdiiEstimate(fund, null, "解析失败")
+            ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null, error = "解析失败")
         val changeStr = root["gszzl"]?.toString()
-            ?: return QdiiEstimate(fund, null, null)
+            ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null)
         val change = changeStr.toDoubleOrNull()
-            ?: return QdiiEstimate(fund, null, null)
+            ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null)
         val gztime = root["gztime"]?.toString()
         return QdiiEstimate(
             fund = fund,
