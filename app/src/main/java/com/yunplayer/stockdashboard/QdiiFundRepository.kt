@@ -37,10 +37,10 @@ class QdiiFundRepository(
             .trimEnd(')', ';', ' ', '\n', '\r')
         val root = mapAdapter.fromJson(json)
             ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null, error = "解析失败")
-        val changeStr = root["gszzl"]?.toString()
+        val changeStr = root["gszzl"]?.toString()?.trim()?.trimEnd('%')
             ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null)
         val change = changeStr.toDoubleOrNull()
-            ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null)
+            ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null, error = "格式异常:$changeStr")
         val gztime = root["gztime"]?.toString()
         return QdiiEstimate(
             fund = fund,

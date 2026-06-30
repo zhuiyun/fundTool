@@ -640,12 +640,15 @@ private fun QdiiFundRow(estimate: QdiiEstimate, modifier: Modifier = Modifier) {
                             overflow = TextOverflow.Ellipsis
                         )
                         val subtitle = when {
-                            estimate.error != null -> estimate.error
-                            estimate.holdings.isNotEmpty() && estimate.holdingsDate != null ->
-                                "持仓 ${estimate.holdingsDate}  ·  ${estimate.holdings.size}只"
+                            estimate.error != null -> "${estimate.fund.code} · ${estimate.error}"
+                            estimate.estimatedChangePercent != null && estimate.holdingsDate != null ->
+                                "${estimate.fund.code} · 估算 ${formatEstimateTime(estimate.holdingsDate)}"
+                            estimate.estimatedChangePercent != null ->
+                                estimate.fund.code
                             estimate.holdingsDate != null ->
-                                "估算 ${estimate.holdingsDate}"
-                            else -> null
+                                "${estimate.fund.code} · 暂无估算 · ${formatEstimateTime(estimate.holdingsDate)}"
+                            else ->
+                                "${estimate.fund.code} · 暂无估算数据"
                         }
                         if (subtitle != null) {
                             Text(

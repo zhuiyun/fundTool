@@ -54,4 +54,7 @@ fun formatVolume(v: Long): String = when {
     else -> v.toString()
 }
 
+fun formatEstimateTime(gztime: String): String =
+    if (gztime.length >= 16) gztime.substring(5, 16) else gztime
+
 private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
