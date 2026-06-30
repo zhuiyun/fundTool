@@ -69,6 +69,7 @@ class StockDashboardViewModel(
             coroutineScope {
                 launch { loadAllTabs() }
                 launch { loadNasdaq() }
+                if (qdiiLoaded) launch { loadQdii() }
             }
         }
     }

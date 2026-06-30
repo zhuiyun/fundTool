@@ -17,9 +17,12 @@ class QdiiFundRepository(
     )
 
     // Uses Eastmoney's official real-time QDII estimated-NAV service.
-    // Response: jsonpgz({"fundcode":"160213","gszzl":"1.01","gztime":"2026-06-20 03:30:00",...})
-    // gszzl = 估算涨跌幅 (estimated change %)
-    // gztime = last estimation time
+    // Response fields used:
+    //   dwjz  = 单位净值 (previous A-share trading day's official NAV)
+    //   gsz   = 估算净值 (today's estimated NAV, updated during US market hours)
+    //   gszzl = 估算涨跌幅 (pre-computed change %, used as fallback)
+    //   gztime = last estimation timestamp
+    // Correct formula: change% = (gsz - dwjz) / dwjz × 100
     suspend fun fetchEstimate(fund: QdiiFundInfo): QdiiEstimate = withContext(Dispatchers.IO) {
         runCatching {
             val body = get("https://fundgz.1234567.com.cn/js/${fund.code}.js")
@@ -31,17 +34,29 @@ class QdiiFundRepository(
 
     @Suppress("UNCHECKED_CAST")
     private fun parseEstimate(jsonp: String, fund: QdiiFundInfo): QdiiEstimate {
-        // Strip JSONP wrapper: "jsonpgz({...})" or "jsonpgz({...});"
         val json = jsonp.trim()
             .replace(Regex("^jsonpgz\\("), "")
             .trimEnd(')', ';', ' ', '\n', '\r')
         val root = mapAdapter.fromJson(json)
             ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null, error = "解析失败")
-        val changeStr = root["gszzl"]?.toString()?.trim()?.trimEnd('%')
-            ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null)
-        val change = changeStr.toDoubleOrNull()
-            ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null, error = "格式异常:$changeStr")
+
         val gztime = root["gztime"]?.toString()
+
+        // Primary: calculate from dwjz (前一天A股净值) and gsz (当天美股估算净值)
+        val dwjz = root["dwjz"]?.toString()?.trim()?.toDoubleOrNull()
+        val gsz = root["gsz"]?.toString()?.trim()?.toDoubleOrNull()
+        val calculatedChange = if (dwjz != null && gsz != null && dwjz > 0.0) {
+            (gsz - dwjz) / dwjz * 100.0
+        } else null
+
+        // Fallback: use pre-computed gszzl if dwjz/gsz unavailable
+        val change = calculatedChange ?: run {
+            val changeStr = root["gszzl"]?.toString()?.trim()?.trimEnd('%')
+                ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null, holdingsDate = gztime)
+            changeStr.toDoubleOrNull()
+                ?: return QdiiEstimate(fund = fund, estimatedChangePercent = null, error = "格式异常:$changeStr", holdingsDate = gztime)
+        }
+
         return QdiiEstimate(
             fund = fund,
             estimatedChangePercent = change,
